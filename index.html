@@ -267,6 +267,30 @@
 
   .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 100px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 100; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Daily capacity */
+  .cap-grid { display: flex; gap: 8px; }
+  .cap-cell { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .cap-dow { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .cap-input { width: 100%; text-align: center; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+    border-radius: var(--radius-sm); padding: 9px 4px; font: inherit; font-size: 15px; font-weight: 600; outline: none; transition: border-color .15s, box-shadow .15s; -moz-appearance: textfield; }
+  .cap-input::-webkit-inner-spin-button, .cap-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .cap-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  /* Day load meter */
+  .load-meter { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .load-bar { flex: 1; height: 8px; border-radius: 100px; background: var(--line); overflow: hidden; }
+  .load-fill { height: 100%; border-radius: 100px; transition: width .25s; }
+  .load-label { font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .load-meter.ok   .load-fill { background: var(--ok); }
+  .load-meter.ok   .load-label { color: var(--ok); }
+  .load-meter.full .load-fill { background: var(--accent); }
+  .load-meter.full .load-label { color: var(--accent); }
+  .load-meter.over .load-fill { background: var(--soon); }
+  .load-meter.over .load-label { color: var(--soon); }
+
+  /* Over-capacity day marker on the calendar */
+  .cal-cell.is-over::after { content: ''; position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--soon); }
 </style>
 </head>
 <body>
@@ -432,9 +456,34 @@ function load() {
     if (!p.routines) p.routines = [];
     if (!p.routineLog) p.routineLog = {};
     if (!p.appointments) p.appointments = [];
+    if (!p.capacity) p.capacity = defaultCapacity();
   });
 }
 function save() { try { localStorage.setItem(PKEY, JSON.stringify(phases)); } catch(e) {} }
+
+// ── DAILY CAPACITY ─────────────────────────────────────────────────────────
+// How many "things" (tasks + appointments + routine sessions) feel doable on a
+// given weekday. Keyed by JS Date.getDay(): 0=Sun .. 6=Sat. Until tasks carry an
+// effort/time estimate, load is counted as items; capacity is the ceiling.
+function defaultCapacity() {
+  return { 0: 2, 1: 4, 2: 4, 3: 4, 4: 4, 5: 4, 6: 2 };
+}
+function dayCapacity(phase, iso) {
+  const cap = phase.capacity || defaultCapacity();
+  const v = cap[new Date(iso + 'T00:00:00').getDay()];
+  return (typeof v === 'number' && v >= 0) ? v : 4;
+}
+// Count of not-yet-done work planned on a day (skipped routine sessions don't count).
+function dayLoadCount(phase, iso, routinePlan) {
+  let n = 0;
+  (phase.tasks || []).forEach(t => { if (t.date === iso && !t.done) n++; });
+  (phase.appointments || []).forEach(a => { if (a.date === iso && !a.done) n++; });
+  const log = phase.routineLog || {};
+  ((routinePlan && routinePlan[iso]) || []).forEach(rid => {
+    if (log[`${rid}|${iso}`] !== 'skip') n++;
+  });
+  return n;
+}
 
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -576,7 +625,7 @@ function submitPhase() {
   if (end < start) { toast('End date must be after start date'); return; }
   const goals = setupGoals.filter(g => g.title.trim() && g.date)
     .map(g => ({ id: uid(), title: g.title.trim(), date: g.date, cat: g.cat||'study' }));
-  phases.push({ id: uid(), title, start, end, goals, tasks: [], routines: [], routineLog: {}, appointments: [] });
+  phases.push({ id: uid(), title, start, end, goals, tasks: [], routines: [], routineLog: {}, appointments: [], capacity: defaultCapacity() });
   save(); currentPhaseId = phases[phases.length-1].id; toast('Locked in!'); showView('phase');
 }
 
@@ -704,7 +753,13 @@ function computeRoutinePlan(phase) {
       if (need <= 0) return;
 
       const candidates = days.filter(iso => !(plan[iso] || []).includes(r.id));
-      candidates.sort((a, b) => (load[a] || 0) - (load[b] || 0) || (a < b ? -1 : 1));
+      // Prefer days still under their capacity; fall back to fullest-avoiding order
+      // so weekly targets are still met even when every day is already full.
+      candidates.sort((a, b) => {
+        const overA = (load[a] || 0) >= dayCapacity(phase, a) ? 1 : 0;
+        const overB = (load[b] || 0) >= dayCapacity(phase, b) ? 1 : 0;
+        return overA - overB || (load[a] || 0) - (load[b] || 0) || (a < b ? -1 : 1);
+      });
       for (let i = 0; i < need && i < candidates.length; i++) add(candidates[i], r.id);
     });
   });
@@ -763,10 +818,12 @@ function rebuildAuto(phase) {
     // Prefer days already assigned to this goal in the day plan
     const preferred = days.filter(d => dayPlan[d] === task.goalId);
     const pool = preferred.length ? preferred : days;
-    let best = pool[0], bLoad = load[pool[0]]||0;
-    for (let i = 1; i < pool.length; i++) {
-      const l = load[pool[i]]||0;
-      if (l < bLoad) { bLoad = l; best = pool[i]; }
+    // Pick the lightest day, but strongly avoid days already at capacity.
+    let best = pool[0], bScore = Infinity;
+    for (const d of pool) {
+      const l = load[d]||0;
+      const score = (l >= dayCapacity(phase, d) ? 1000 : 0) + l;
+      if (score < bScore) { bScore = score; best = d; }
     }
     task.date = best; load[best] = (load[best]||0)+1;
   });
@@ -856,6 +913,9 @@ function buildCalendar(phase, dayPlan, colorMap, routinePlan) {
         });
         if ((taskMap[iso] || []).length) dots.push(`<span class="cal-dot" style="background:var(--muted);opacity:.45"></span>`);
         if (dots.length) inner += `<span class="cal-dots">${dots.slice(0, 5).join('')}</span>`;
+
+        // Gentle marker when a day is carrying more than its capacity.
+        if (inP && !isP && dayLoadCount(phase, iso, routinePlan) > dayCapacity(phase, iso)) cls.push('is-over');
       }
 
       cells += `<div class="${cls.join(' ')}"${extraStyle ? ` style="${extraStyle}"` : ''} data-date="${iso}">${inner}</div>`;
@@ -1176,6 +1236,21 @@ function deleteItem(type, item) {
   save(); closeModal(); refreshCurrentView(); toast('Deleted');
 }
 
+// ── CAPACITY EDITOR ────────────────────────────────────────────────────────
+
+function buildCapacityEditor(phase) {
+  const cap = phase.capacity || defaultCapacity();
+  const order = [1, 2, 3, 4, 5, 6, 0];                 // Mon → Sun
+  const labels = { 1:'Mo', 2:'Tu', 3:'We', 4:'Th', 5:'Fr', 6:'Sa', 0:'Su' };
+  const cells = order.map(d => `
+    <label class="cap-cell">
+      <span class="cap-dow">${labels[d]}</span>
+      <input type="number" min="0" max="12" inputmode="numeric" class="cap-input" data-cap-dow="${d}" value="${cap[d] ?? ''}">
+    </label>`).join('');
+  return `<div class="cap-grid">${cells}</div>
+    <div class="hint" style="margin-top:10px">How many things feel doable each day. The planner keeps days under this when it can.</div>`;
+}
+
 // ── PHASE VIEW ─────────────────────────────────────────────────────────────
 
 function renderPhase() {
@@ -1233,6 +1308,10 @@ function renderPhase() {
           <div class="panel-title">Appointments <span class="hint ml">tap to edit</span></div>
           ${buildAppointmentBlocks(phase)}
         </div>
+        <div class="panel">
+          <div class="panel-title">Daily capacity <span class="hint ml">things per day</span></div>
+          ${buildCapacityEditor(phase)}
+        </div>
       </div>
     </div>
   `;
@@ -1240,6 +1319,18 @@ function renderPhase() {
   // Calendar day clicks
   document.getElementById('phase-content').querySelectorAll('.cal-cell[data-date]:not(.out-phase):not(.empty)').forEach(cell => {
     cell.onclick = () => { currentDayISO = cell.dataset.date; showView('day'); };
+  });
+
+  // Daily capacity inputs
+  document.getElementById('phase-content').querySelectorAll('[data-cap-dow]').forEach(inp => {
+    inp.onchange = () => {
+      let v = parseInt(inp.value, 10);
+      if (isNaN(v) || v < 0) v = 0;
+      if (v > 12) v = 12;
+      phase.capacity = phase.capacity || defaultCapacity();
+      phase.capacity[+inp.dataset.capDow] = v;
+      save(); renderPhase();
+    };
   });
 
   // Task toggle
@@ -1381,12 +1472,27 @@ function renderDay() {
         </div>`;
       }).join('')}</div>`;
 
+  // Load meter — how full this day is vs. its capacity (skip for days already gone).
+  const capN  = dayCapacity(phase, iso);
+  const loadN = dayLoadCount(phase, iso, routinePlan);
+  const loadState = loadN > capN ? 'over' : (loadN >= capN ? 'full' : 'ok');
+  const loadPct = capN > 0 ? Math.min(100, Math.round(loadN / capN * 100)) : (loadN ? 100 : 0);
+  const loadMsg = loadState === 'over' ? `${loadN} of ${capN} · a bit full`
+                : loadState === 'full' ? `${loadN} of ${capN} · full`
+                : `${loadN} of ${capN} planned`;
+  const capacityHTML = iso < todayISO() ? '' : `
+    <div class="load-meter ${loadState}">
+      <div class="load-bar"><div class="load-fill" style="width:${loadPct}%"></div></div>
+      <div class="load-label">${loadMsg}</div>
+    </div>`;
+
   document.getElementById('day-content').innerHTML = `
     <div class="day-hero">
       <div class="day-name">${weekday}</div>
       <div class="day-date-full">${fmtDayFull(iso)}</div>
       ${badge}
       ${studyTagHTML}
+      ${capacityHTML}
     </div>
     ${deadlineHTML}
     ${apptHTML}

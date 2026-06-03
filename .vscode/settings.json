@@ -1,0 +1,8 @@
+{
+  // Live Server: open the app at http://localhost:5500 and reload on save.
+  "liveServer.settings.port": 5500,
+  "liveServer.settings.donotShowInfoMsg": true,
+
+  // Keep line endings consistent (avoids git's LF/CRLF churn on this repo).
+  "files.eol": "\n"
+}

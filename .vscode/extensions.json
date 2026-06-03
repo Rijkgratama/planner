@@ -1,0 +1,7 @@
+{
+  // VS Code will prompt to install these when you open the planner folder.
+  "recommendations": [
+    "anthropic.claude-code",   // Claude Code, inside the editor
+    "ritwickdey.liveserver"    // Live Server: auto-reload preview at http://localhost
+  ]
+}

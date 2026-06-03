@@ -153,6 +153,7 @@
   /* routine + task dots row */
   .cal-dots { display: flex; gap: 3px; z-index: 1; margin-top: 1px; }
   .cal-dot { width: 5px; height: 5px; border-radius: 50%; }
+  .cal-dot.appt { border-radius: 1px; }   /* appointments = little squares */
 
   /* ── GOAL LEGEND ── */
   .goal-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -172,6 +173,15 @@
   .gb-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .gb-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
   .gb-progress { margin-bottom: 10px; }
+
+  /* tap-to-edit affordance */
+  .editable { cursor: pointer; }
+  .gb-header.editable { border-radius: var(--radius-sm); margin: -6px -6px 2px; padding: 6px; transition: background .12s; }
+  .gb-header.editable:hover { background: var(--surface-2); }
+  .gb-header.editable:hover .gb-title { color: var(--accent); }
+  .task-body.editable:hover .task-title { color: var(--accent); }
+  .edit-hint { pointer-events: none; opacity: 0; transition: opacity .12s; }
+  .gb-header.editable:hover .edit-hint { opacity: 0.7; }
 
   .countdown-badge { flex-shrink: 0; font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 100px; }
   .countdown-badge.urgent { background: var(--urgent-bg); color: var(--urgent); }
@@ -226,6 +236,35 @@
   .phase-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; align-items: start; }
   @media (max-width: 780px) { .phase-grid { grid-template-columns: 1fr; } }
 
+  /* ── MODAL ── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(42,38,32,0.45); display: flex; align-items: flex-end; justify-content: center; z-index: 200; }
+  @media (min-width: 600px) { .modal-overlay { align-items: center; padding: 20px; } }
+  .modal { background: var(--surface); border-radius: 18px 18px 0 0; width: 100%; max-width: 460px; max-height: 92vh; overflow-y: auto; box-shadow: 0 -8px 40px rgba(0,0,0,0.18); animation: modalIn .2s ease; }
+  @media (min-width: 600px) { .modal { border-radius: 18px; } }
+  @keyframes modalIn { from { transform: translateY(24px); opacity: .5; } to { transform: none; opacity: 1; } }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  .modal-title { font-family: 'Fraunces', serif; font-size: 19px; font-weight: 500; text-transform: capitalize; }
+  .modal-body { padding: 16px 18px 22px; }
+
+  .type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .type-card { border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--radius); padding: 15px; cursor: pointer; text-align: left; font: inherit; transition: border-color .15s, box-shadow .15s; }
+  .type-card:hover { border-color: var(--accent); box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .type-card .tc-name { font-weight: 600; font-size: 15px; margin-bottom: 3px; display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .type-card .tc-desc { font-size: 12px; color: var(--muted); }
+  .type-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  .field { margin-bottom: 14px; }
+  .field:last-of-type { margin-bottom: 0; }
+  .field > label { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .field input[type=time] { border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 10px 12px; font: inherit; font-size: 14px; width: 100%; outline: none; }
+  .field-row { display: flex; gap: 10px; }
+  .field-row > .field { flex: 1; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 20px; }
+  .modal-actions .btn.ml-grow { flex: 1; }
+  .modal-actions .btn.danger { background: var(--surface); color: var(--urgent); border: 1px solid var(--line); }
+  .modal-actions .btn.danger:hover { background: var(--urgent-bg); border-color: transparent; filter: none; }
+  .modal-actions .btn.danger svg { width: 16px; height: 16px; vertical-align: -3px; }
+
   .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 100px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 100; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
@@ -269,11 +308,7 @@
       <div id="s-goals-list"></div>
       <button class="btn ghost" style="margin-top:10px" id="s-add-goal">+ Add a goal</button>
     </div>
-    <div class="panel">
-      <div class="panel-title">Weekly routines <span class="hint">— things you want to do X× / week</span></div>
-      <div id="s-routines-list"></div>
-      <button class="btn ghost" style="margin-top:10px" id="s-add-routine">+ Add a routine</button>
-    </div>
+    <p class="subtitle" style="margin:2px 4px 14px">You'll add routines, appointments and tasks inside the phase once it's created.</p>
     <button class="btn wide" id="s-submit">Lock in →</button>
   </div>
 
@@ -284,6 +319,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 5 5 12 12 19"/></svg>
       </button>
       <span class="page-title" id="ph-title-bar"></span>
+      <button class="btn sm" id="phase-add" style="margin-left:auto">+ Add</button>
     </div>
     <div id="phase-content"></div>
   </div>
@@ -295,15 +331,28 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 5 5 12 12 19"/></svg>
       </button>
       <span class="page-title" id="day-title-bar"></span>
+      <button class="btn sm" id="day-add" style="margin-left:auto">+ Add</button>
     </div>
     <div id="day-content"></div>
   </div>
 
 </div>
+
+<!-- ── ADD / EDIT MODAL ── -->
+<div class="modal-overlay" id="modal" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <span class="modal-title" id="modal-title">Add</span>
+      <button class="icon-btn" id="modal-close" aria-label="Close"></button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.9';
+const APP_VERSION = '0.10';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -382,6 +431,7 @@ function load() {
     if (!p.goals) p.goals = [];
     if (!p.routines) p.routines = [];
     if (!p.routineLog) p.routineLog = {};
+    if (!p.appointments) p.appointments = [];
   });
 }
 function save() { try { localStorage.setItem(PKEY, JSON.stringify(phases)); } catch(e) {} }
@@ -399,6 +449,12 @@ function svgTrash() {
 }
 function svgCheck() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+}
+function svgPencil() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+}
+function svgClose() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 }
 
 // ── VIEWS ──────────────────────────────────────────────────────────────────
@@ -466,7 +522,6 @@ function renderHome() {
 // ── SETUP ──────────────────────────────────────────────────────────────────
 
 let setupGoals = [];
-let setupRoutines = [];
 
 function catOptions(sel) {
   return Object.entries(CATS).map(([k, v]) => `<option value="${k}"${sel === k ? ' selected' : ''}>${v.label}</option>`).join('');
@@ -482,9 +537,7 @@ function initSetup() {
   document.getElementById('s-start').value = todayISO();
   document.getElementById('s-end').value   = '';
   setupGoals = [];
-  setupRoutines = [];
   addGoalRow();
-  renderRoutineRows();
 }
 
 function renderGoalRows() {
@@ -514,45 +567,6 @@ function addGoalRow() {
   setTimeout(() => { const ins = document.querySelectorAll('.gr-title'); if (ins.length) ins[ins.length-1].focus(); }, 40);
 }
 
-function renderRoutineRows() {
-  const el = document.getElementById('s-routines-list');
-  if (!setupRoutines.length) { el.innerHTML = '<div class="no-items">No routines yet — optional.</div>'; return; }
-  el.innerHTML = setupRoutines.map((r, i) => `
-    <div class="routine-row" data-i="${i}">
-      <input class="rr-title" type="text" placeholder="Routine (e.g. Exercise, Walk dog)" value="${escapeHtml(r.title||'')}"/>
-      <div class="freq-ctrl">
-        <select class="rr-min">${freqOptions(r.perWeekMin)}</select>
-        <span class="freq-sep">–</span>
-        <select class="rr-max">${freqOptions(r.perWeekMax)}</select>
-        <span class="freq-unit">× / week</span>
-      </div>
-      <select class="rr-cat">${catOptions(r.cat)}</select>
-      <button class="icon-btn" data-del-rt="${i}">${svgTrash()}</button>
-    </div>`).join('');
-  el.querySelectorAll('.routine-row').forEach(row => {
-    const i = +row.dataset.i;
-    row.querySelector('.rr-title').oninput = e => { setupRoutines[i].title = e.target.value; };
-    row.querySelector('.rr-min').onchange = e => {
-      setupRoutines[i].perWeekMin = +e.target.value;
-      if (setupRoutines[i].perWeekMax < +e.target.value) { setupRoutines[i].perWeekMax = +e.target.value; renderRoutineRows(); }
-    };
-    row.querySelector('.rr-max').onchange = e => {
-      setupRoutines[i].perWeekMax = +e.target.value;
-      if (setupRoutines[i].perWeekMin > +e.target.value) { setupRoutines[i].perWeekMin = +e.target.value; renderRoutineRows(); }
-    };
-    row.querySelector('.rr-cat').onchange = e => { setupRoutines[i].cat = e.target.value; };
-  });
-  el.querySelectorAll('[data-del-rt]').forEach(btn => {
-    btn.onclick = () => { setupRoutines.splice(+btn.dataset.delRt, 1); renderRoutineRows(); };
-  });
-}
-
-function addRoutineRow() {
-  setupRoutines.push({ title:'', perWeekMin:2, perWeekMax:3, cat:'sport' });
-  renderRoutineRows();
-  setTimeout(() => { const ins = document.querySelectorAll('.rr-title'); if (ins.length) ins[ins.length-1].focus(); }, 40);
-}
-
 function submitPhase() {
   const title = document.getElementById('s-title').value.trim();
   const start = document.getElementById('s-start').value;
@@ -562,11 +576,7 @@ function submitPhase() {
   if (end < start) { toast('End date must be after start date'); return; }
   const goals = setupGoals.filter(g => g.title.trim() && g.date)
     .map(g => ({ id: uid(), title: g.title.trim(), date: g.date, cat: g.cat||'study' }));
-  const routines = setupRoutines.filter(r => r.title.trim()).map(r => {
-    const min = r.perWeekMin || 1, max = Math.max(min, r.perWeekMax || min);
-    return { id: uid(), title: r.title.trim(), cat: r.cat||'sport', perWeekMin: min, perWeekMax: max };
-  });
-  phases.push({ id: uid(), title, start, end, goals, tasks: [], routines, routineLog: {} });
+  phases.push({ id: uid(), title, start, end, goals, tasks: [], routines: [], routineLog: {}, appointments: [] });
   save(); currentPhaseId = phases[phases.length-1].id; toast('Locked in!'); showView('phase');
 }
 
@@ -642,8 +652,9 @@ function computeRoutinePlan(phase) {
   const examDay = {};
   (phase.goals || []).forEach(g => { examDay[g.date] = true; });
 
-  // Daily load from one-off tasks; routine sessions add to it as we place them.
+  // Daily load from appointments + one-off tasks; routine sessions add to it as we place them.
   const load = {};
+  (phase.appointments || []).forEach(a => { if (a.date) load[a.date] = (load[a.date] || 0) + 1; });
   (phase.tasks || []).forEach(t => { if (t.date && !t.done) load[t.date] = (load[t.date] || 0) + 1; });
 
   const add = (date, rid) => {
@@ -739,6 +750,7 @@ function rebuildAuto(phase) {
   });
 
   const load = {};
+  (phase.appointments||[]).forEach(a => { if (a.date) load[a.date] = (load[a.date]||0) + 1; });
   phase.tasks.forEach(t => { if (t.date && !t.done) load[t.date] = (load[t.date]||0) + 1; });
 
   toPlace.forEach(task => {
@@ -768,6 +780,8 @@ function buildCalendar(phase, dayPlan, colorMap, routinePlan) {
   const today = todayISO();
   const taskMap = {};
   (phase.tasks||[]).forEach(t => { if (t.date) (taskMap[t.date] = taskMap[t.date]||[]).push(t); });
+  const apptMap = {};
+  (phase.appointments||[]).forEach(a => { if (a.date) (apptMap[a.date] = apptMap[a.date]||[]).push(a); });
 
   const months = [];
   let cur = new Date(new Date(phase.start+'T00:00:00').getFullYear(), new Date(phase.start+'T00:00:00').getMonth(), 1);
@@ -836,8 +850,12 @@ function buildCalendar(phase, dayPlan, colorMap, routinePlan) {
           const op  = st === 'done' ? 1 : st === 'skip' ? 0.25 : 0.6;
           dots.push(`<span class="cal-dot" style="background:${col};opacity:${op}"></span>`);
         });
+        (apptMap[iso] || []).forEach(a => {
+          const col = CATS[a.cat] ? CATS[a.cat].color : 'var(--muted)';
+          dots.push(`<span class="cal-dot appt" style="background:${col};${a.done ? 'opacity:.35' : ''}"></span>`);
+        });
         if ((taskMap[iso] || []).length) dots.push(`<span class="cal-dot" style="background:var(--muted);opacity:.45"></span>`);
-        if (dots.length) inner += `<span class="cal-dots">${dots.slice(0, 4).join('')}</span>`;
+        if (dots.length) inner += `<span class="cal-dots">${dots.slice(0, 5).join('')}</span>`;
       }
 
       cells += `<div class="${cls.join(' ')}"${extraStyle ? ` style="${extraStyle}"` : ''} data-date="${iso}">${inner}</div>`;
@@ -859,14 +877,14 @@ function buildLegend(phase, colorMap) {
     const col = GOAL_PALETTE[ci % GOAL_PALETTE.length];
     return `<span class="legend-item"><span class="legend-dot" style="background:${col.color}"></span>${escapeHtml(g.title)}</span>`;
   }).join('');
-  return `<div class="goal-legend">${items}<span class="legend-hint">Filled cell = exam day · Strip color = study focus · Dots = routines / tasks</span></div>`;
+  return `<div class="goal-legend">${items}<span class="legend-hint">Filled cell = exam · Strip = study focus · ● routine/task · ▪ appointment</span></div>`;
 }
 
 // ── GOAL PROGRESS BLOCKS ───────────────────────────────────────────────────
 
 function buildGoalBlocks(phase, dayPlan, colorMap) {
   const sorted = (phase.goals||[]).slice().sort((a,b) => a.date < b.date ? -1 : 1);
-  if (!sorted.length) return '<div class="no-items">No goals yet — add one below.</div>';
+  if (!sorted.length) return '<div class="no-items">No goals yet — use + Add.</div>';
 
   const today = todayISO();
   return sorted.map(g => {
@@ -889,11 +907,10 @@ function buildGoalBlocks(phase, dayPlan, colorMap) {
       `<div class="task-list">${gTasks.map(t => `
         <div class="task-item">
           <button class="task-check ${t.done?'is-done':''}" data-toggle="${t.id}">${svgCheck()}</button>
-          <div class="task-body">
+          <div class="task-body editable" data-edit-task="${t.id}">
             <div class="task-title ${t.done?'is-done':''}">${escapeHtml(t.title)}</div>
             ${t.date ? `<div class="task-sched">${t.userPlaced?'📌':'🗓'} ${fmtMed(t.date)}</div>` : '<div class="task-sched">Unscheduled</div>'}
           </div>
-          <button class="icon-btn" data-del-task="${t.id}">${svgTrash()}</button>
         </div>`).join('')}</div>`;
 
     const countLabel = total > 0
@@ -901,7 +918,7 @@ function buildGoalBlocks(phase, dayPlan, colorMap) {
       : gTasks.length ? `${tDone}/${gTasks.length} tasks` : '';
 
     return `<div class="goal-block" data-gid="${g.id}">
-      <div class="gb-header">
+      <div class="gb-header editable" data-edit-goal="${g.id}">
         <div class="gb-left">
           <div class="gb-name-row">
             <span class="goal-color-dot" style="background:${col.color}"></span>
@@ -912,6 +929,7 @@ function buildGoalBlocks(phase, dayPlan, colorMap) {
         <div class="gb-right">
           ${countLabel ? `<span class="gb-count">${countLabel}</span>` : ''}
           <span class="countdown-badge ${cls}">${urgencyLabel(days)}</span>
+          <span class="icon-btn edit-hint">${svgPencil()}</span>
         </div>
       </div>
       <div class="gb-progress">
@@ -930,7 +948,7 @@ function freqLabel(r) {
 
 function buildRoutineBlocks(phase) {
   const routines = phase.routines || [];
-  if (!routines.length) return '<div class="no-items">No routines yet — add one below.</div>';
+  if (!routines.length) return '<div class="no-items">No routines yet — use + Add.</div>';
   const today = todayISO();
   return routines.map(r => {
     const col    = CATS[r.cat] ? CATS[r.cat].color : 'var(--muted)';
@@ -939,7 +957,7 @@ function buildRoutineBlocks(phase) {
     const pct    = Math.min(100, Math.round(done / target * 100));
     const met    = done >= (r.perWeekMin || target);
     return `<div class="goal-block" data-rid="${r.id}">
-      <div class="gb-header">
+      <div class="gb-header editable" data-edit-routine="${r.id}">
         <div class="gb-left">
           <div class="gb-name-row">
             <span class="goal-color-dot" style="background:${col}"></span>
@@ -949,7 +967,7 @@ function buildRoutineBlocks(phase) {
         </div>
         <div class="gb-right">
           <span class="gb-count">${done}/${target} this week${met ? ' ✓' : ''}</span>
-          <button class="icon-btn" data-del-rt="${r.id}" aria-label="Delete">${svgTrash()}</button>
+          <span class="icon-btn edit-hint">${svgPencil()}</span>
         </div>
       </div>
       <div class="gb-progress">
@@ -957,6 +975,205 @@ function buildRoutineBlocks(phase) {
       </div>
     </div>`;
   }).join('');
+}
+
+function buildAppointmentBlocks(phase) {
+  const appts = (phase.appointments || []).slice().sort((a, b) =>
+    a.date === b.date ? ((a.time||'') < (b.time||'') ? -1 : 1) : (a.date < b.date ? -1 : 1));
+  if (!appts.length) return '<div class="no-items">No appointments yet — use + Add.</div>';
+  const today = todayISO();
+  return appts.map(a => {
+    const col  = CATS[a.cat] ? CATS[a.cat].color : 'var(--muted)';
+    const days = daysUntil(a.date);
+    const past = a.date < today;
+    return `<div class="goal-block">
+      <div class="gb-header editable" data-edit-appt="${a.id}" style="margin-bottom:0">
+        <div class="gb-left">
+          <div class="gb-name-row">
+            <span class="goal-color-dot" style="background:${col}"></span>
+            <span class="gb-title" ${a.done?'style="text-decoration:line-through;color:var(--faint)"':''}>${escapeHtml(a.title)}</span>
+          </div>
+          <div class="gb-sub">${fmtMed(a.date)}${a.time ? ` · ${a.time}` : ''}</div>
+        </div>
+        <div class="gb-right">
+          <span class="countdown-badge ${past ? 'past' : urgencyClass(days)}">${urgencyLabel(days)}</span>
+          <span class="icon-btn edit-hint">${svgPencil()}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── ADD / EDIT MODAL ───────────────────────────────────────────────────────
+
+const TYPE_META = {
+  goal:        { name: 'Goal',        desc: 'Exam or deadline',   color: 'var(--c-appt)'  },
+  routine:     { name: 'Routine',     desc: 'Repeats X× / week',  color: 'var(--c-sport)' },
+  appointment: { name: 'Appointment', desc: 'Fixed date & time',  color: 'var(--c-study)' },
+  task:        { name: 'Task',        desc: 'One-off to-do',      color: 'var(--c-house)' },
+};
+
+function openModal()  { document.getElementById('modal').style.display = 'flex'; }
+function closeModal()  { document.getElementById('modal').style.display = 'none'; document.getElementById('modal-body').innerHTML = ''; }
+function refreshCurrentView() {
+  if (document.getElementById('v-day').style.display !== 'none') renderDay();
+  else renderPhase();
+}
+
+// Step 1: choose what to add. `presetDate` (optional) pre-fills date fields.
+function openTypePicker(presetDate) {
+  document.getElementById('modal-title').textContent = 'Add to phase';
+  const body = document.getElementById('modal-body');
+  body.innerHTML = `<div class="type-grid">${Object.entries(TYPE_META).map(([t, m]) =>
+    `<button class="type-card" data-type="${t}">
+       <span class="tc-name"><span class="type-dot" style="background:${m.color}"></span>${m.name}</span>
+       <span class="tc-desc">${m.desc}</span>
+     </button>`).join('')}</div>`;
+  body.querySelectorAll('.type-card').forEach(b => { b.onclick = () => openEditor(b.dataset.type, null, presetDate); });
+  openModal();
+}
+
+// Step 2: the form — add (item null) or edit (item given).
+function openEditor(type, item, presetDate) {
+  const isEdit = !!item;
+  document.getElementById('modal-title').textContent = (isEdit ? 'Edit ' : 'New ') + TYPE_META[type].name.toLowerCase();
+  document.getElementById('modal-body').innerHTML = renderForm(type, item, presetDate);
+
+  document.getElementById('ed-cancel').onclick = closeModal;
+  document.getElementById('ed-save').onclick   = () => saveEditor(type, item);
+  const del = document.getElementById('ed-delete'); if (del) del.onclick = () => deleteItem(type, item);
+
+  if (type === 'routine') {
+    const mn = document.getElementById('ed-min'), mx = document.getElementById('ed-max');
+    mn.onchange = () => { if (+mx.value < +mn.value) mx.value = mn.value; };
+    mx.onchange = () => { if (+mn.value > +mx.value) mn.value = mx.value; };
+  }
+  const title = document.getElementById('ed-title');
+  title.addEventListener('keydown', e => { if (e.key === 'Enter') saveEditor(type, item); });
+  openModal();
+  setTimeout(() => title.focus(), 30);
+}
+
+function fldTitle(item, ph) {
+  return `<div class="field"><label>Name</label><input type="text" id="ed-title" placeholder="${ph}" value="${item ? escapeHtml(item.title) : ''}"></div>`;
+}
+function fldCat(sel) {
+  return `<div class="field"><label>Category</label><select id="ed-cat">${catOptions(sel)}</select></div>`;
+}
+
+function renderForm(type, item, presetDate) {
+  const phase = phases.find(p => p.id === currentPhaseId) || {};
+  let fields = '';
+
+  if (type === 'goal') {
+    fields = `${fldTitle(item, 'Goal name (e.g. Math exam)')}
+      <div class="field"><label>Date</label><input type="date" id="ed-date" value="${item ? item.date : (presetDate || '')}"></div>
+      ${fldCat(item ? item.cat : 'study')}`;
+
+  } else if (type === 'routine') {
+    const r = item || { perWeekMin: 2, perWeekMax: 3, cat: 'sport' };
+    fields = `${fldTitle(item, 'Routine (e.g. Exercise, Walk dog)')}
+      <div class="field"><label>Times per week</label>
+        <div class="freq-ctrl">
+          <select id="ed-min">${freqOptions(r.perWeekMin)}</select>
+          <span class="freq-sep">–</span>
+          <select id="ed-max">${freqOptions(r.perWeekMax)}</select>
+          <span class="freq-unit">× / week</span>
+        </div>
+      </div>
+      ${fldCat(r.cat)}`;
+
+  } else if (type === 'appointment') {
+    fields = `${fldTitle(item, 'Appointment (e.g. Dentist)')}
+      <div class="field-row">
+        <div class="field"><label>Date</label><input type="date" id="ed-date" value="${item ? item.date : (presetDate || '')}"></div>
+        <div class="field"><label>Time</label><input type="time" id="ed-time" value="${item ? (item.time || '') : ''}"></div>
+      </div>
+      ${fldCat(item ? item.cat : 'appt')}`;
+
+  } else if (type === 'task') {
+    const goalOpts = `<option value="">No specific goal</option>${(phase.goals || []).map(g =>
+      `<option value="${g.id}"${item && item.goalId === g.id ? ' selected' : ''}>${escapeHtml(g.title)}</option>`).join('')}`;
+    const dval = item ? (item.userPlaced && item.date ? item.date : '') : (presetDate || '');
+    fields = `${fldTitle(item, 'Task (e.g. Buy groceries)')}
+      <div class="field"><label>Linked goal (optional)</label><select id="ed-goal">${goalOpts}</select></div>
+      <div class="field"><label>Day <span style="text-transform:none;font-weight:400">— leave empty to auto-plan</span></label><input type="date" id="ed-date" value="${dval}"></div>`;
+  }
+
+  const isEdit = !!item;
+  return fields + `
+    <div class="modal-actions">
+      ${isEdit ? `<button class="btn danger" id="ed-delete" aria-label="Delete">${svgTrash()}</button>` : ''}
+      <button class="btn ghost ml-grow" id="ed-cancel">Cancel</button>
+      <button class="btn ml-grow" id="ed-save">${isEdit ? 'Save' : 'Add'}</button>
+    </div>`;
+}
+
+function saveEditor(type, item) {
+  const phase = phases.find(p => p.id === currentPhaseId);
+  if (!phase) return;
+  const title = (document.getElementById('ed-title').value || '').trim();
+  if (!title) { document.getElementById('ed-title').focus(); toast('Give it a name'); return; }
+
+  if (type === 'goal') {
+    const date = document.getElementById('ed-date').value;
+    if (!date) { document.getElementById('ed-date').focus(); toast('Set a date'); return; }
+    const cat = document.getElementById('ed-cat').value;
+    if (item) Object.assign(item, { title, date, cat });
+    else phase.goals.push({ id: uid(), title, date, cat });
+    rebuildAuto(phase);
+
+  } else if (type === 'routine') {
+    const min = +document.getElementById('ed-min').value || 1;
+    const max = Math.max(min, +document.getElementById('ed-max').value || min);
+    const cat = document.getElementById('ed-cat').value;
+    if (item) Object.assign(item, { title, cat, perWeekMin: min, perWeekMax: max });
+    else phase.routines.push({ id: uid(), title, cat, perWeekMin: min, perWeekMax: max });
+
+  } else if (type === 'appointment') {
+    const date = document.getElementById('ed-date').value;
+    if (!date) { document.getElementById('ed-date').focus(); toast('Set a date'); return; }
+    const time = document.getElementById('ed-time').value || '';
+    const cat = document.getElementById('ed-cat').value;
+    if (item) Object.assign(item, { title, date, time, cat });
+    else phase.appointments.push({ id: uid(), title, date, time, cat, done: false });
+    rebuildAuto(phase);
+
+  } else if (type === 'task') {
+    const goalId = document.getElementById('ed-goal').value || null;
+    const date   = document.getElementById('ed-date').value || null;
+    if (item) {
+      item.title = title; item.goalId = goalId;
+      item.date = date; item.userPlaced = !!date;
+    } else {
+      phase.tasks.push({ id: uid(), title, goalId, date: date || null, done: false, userPlaced: !!date });
+    }
+    rebuildAuto(phase);
+  }
+
+  save(); closeModal(); refreshCurrentView();
+  toast(item ? 'Saved' : 'Added');
+}
+
+function deleteItem(type, item) {
+  const phase = phases.find(p => p.id === currentPhaseId);
+  if (!phase || !item) return;
+  if (!confirm(`Delete "${item.title}"?`)) return;
+
+  if (type === 'goal') {
+    phase.goals = phase.goals.filter(x => x.id !== item.id);
+    phase.tasks.forEach(t => { if (t.goalId === item.id) t.goalId = null; });
+    rebuildAuto(phase);
+  } else if (type === 'routine') {
+    phase.routines = phase.routines.filter(x => x.id !== item.id);
+    Object.keys(phase.routineLog || {}).forEach(k => { if (k.slice(0, k.lastIndexOf('|')) === item.id) delete phase.routineLog[k]; });
+  } else if (type === 'appointment') {
+    phase.appointments = phase.appointments.filter(x => x.id !== item.id);
+  } else if (type === 'task') {
+    phase.tasks = phase.tasks.filter(x => x.id !== item.id);
+    rebuildAuto(phase);
+  }
+  save(); closeModal(); refreshCurrentView(); toast('Deleted');
 }
 
 // ── PHASE VIEW ─────────────────────────────────────────────────────────────
@@ -1005,37 +1222,16 @@ function renderPhase() {
       </div>
       <div>
         <div class="panel">
-          <div class="panel-title">Main goals <button class="btn xs ghost ml" id="ag-toggle">+ Add a goal</button></div>
+          <div class="panel-title">Main goals <span class="hint ml">tap to edit</span></div>
           ${buildGoalBlocks(phase, dayPlan, colorMap)}
-          <div id="ag-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-            <div class="add-goal-row" style="margin-top:0;padding-top:0;border-top:none">
-              <input type="text" id="ag-title" placeholder="Goal name…"/>
-              <input type="date" id="ag-date"/>
-              <select id="ag-cat">${catOptions()}</select>
-              <button class="btn sm" id="ag-add">Add</button>
-              <button class="btn sm ghost" id="ag-cancel">Cancel</button>
-            </div>
-          </div>
         </div>
         <div class="panel">
-          <div class="panel-title">Weekly routines <button class="btn xs ghost ml" id="ar-toggle">+ Add a routine</button></div>
+          <div class="panel-title">Weekly routines <span class="hint ml">tap to edit</span></div>
           ${buildRoutineBlocks(phase)}
-          <div id="ar-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-            <div class="routine-row" style="border-bottom:none;padding:0">
-              <input class="rr-title" type="text" id="ar-title" placeholder="Routine name…"/>
-              <div class="freq-ctrl">
-                <select id="ar-min">${freqOptions(2)}</select>
-                <span class="freq-sep">–</span>
-                <select id="ar-max">${freqOptions(3)}</select>
-                <span class="freq-unit">× / week</span>
-              </div>
-              <select class="rr-cat" id="ar-cat">${catOptions('sport')}</select>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px">
-              <button class="btn sm" id="ar-add">Add</button>
-              <button class="btn sm ghost" id="ar-cancel">Cancel</button>
-            </div>
-          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Appointments <span class="hint ml">tap to edit</span></div>
+          ${buildAppointmentBlocks(phase)}
         </div>
       </div>
     </div>
@@ -1054,85 +1250,21 @@ function renderPhase() {
     };
   });
 
-  // Task delete
-  document.getElementById('phase-content').querySelectorAll('[data-del-task]').forEach(btn => {
-    btn.onclick = () => {
-      phase.tasks = phase.tasks.filter(x => x.id !== btn.dataset.delTask);
-      rebuildAuto(phase); save(); renderPhase(); toast('Task removed');
-    };
+  // Task: tap body to edit
+  document.getElementById('phase-content').querySelectorAll('[data-edit-task]').forEach(el => {
+    el.onclick = () => { const t = phase.tasks.find(x => x.id === el.dataset.editTask); if (t) openEditor('task', t); };
   });
 
-  // Goal add — toggle form visibility
-  const agForm   = document.getElementById('ag-form');
-  const agToggle = document.getElementById('ag-toggle');
-  agToggle.onclick = () => {
-    const open = agForm.style.display === 'none';
-    agForm.style.display = open ? '' : 'none';
-    agToggle.textContent = open ? '✕ Cancel' : '+ Add a goal';
-    if (open) document.getElementById('ag-title').focus();
-  };
-  document.getElementById('ag-cancel').onclick = () => {
-    agForm.style.display = 'none';
-    agToggle.textContent = '+ Add a goal';
-  };
-  document.getElementById('ag-add').onclick = addGoalToPhase;
-  document.getElementById('ag-title').addEventListener('keydown', e => { if (e.key === 'Enter') addGoalToPhase(); });
-
-  // Routine delete
-  document.getElementById('phase-content').querySelectorAll('[data-del-rt]').forEach(btn => {
-    btn.onclick = () => {
-      const r = (phase.routines||[]).find(x => x.id === btn.dataset.delRt);
-      phase.routines = (phase.routines||[]).filter(x => x.id !== btn.dataset.delRt);
-      // drop its log entries too
-      Object.keys(phase.routineLog||{}).forEach(k => { if (k.slice(0, k.lastIndexOf('|')) === btn.dataset.delRt) delete phase.routineLog[k]; });
-      save(); renderPhase(); toast(r ? `Removed "${r.title}"` : 'Routine removed');
-    };
+  // Goal / routine / appointment: tap to edit
+  document.getElementById('phase-content').querySelectorAll('[data-edit-goal]').forEach(el => {
+    el.onclick = () => { const g = phase.goals.find(x => x.id === el.dataset.editGoal); if (g) openEditor('goal', g); };
   });
-
-  // Routine add — toggle form visibility
-  const arForm   = document.getElementById('ar-form');
-  const arToggle = document.getElementById('ar-toggle');
-  arToggle.onclick = () => {
-    const open = arForm.style.display === 'none';
-    arForm.style.display = open ? '' : 'none';
-    arToggle.textContent = open ? '✕ Cancel' : '+ Add a routine';
-    if (open) document.getElementById('ar-title').focus();
-  };
-  document.getElementById('ar-cancel').onclick = () => {
-    arForm.style.display = 'none';
-    arToggle.textContent = '+ Add a routine';
-  };
-  // keep min ≤ max in the add form
-  document.getElementById('ar-min').onchange = e => {
-    const mx = document.getElementById('ar-max'); if (+mx.value < +e.target.value) mx.value = e.target.value;
-  };
-  document.getElementById('ar-max').onchange = e => {
-    const mn = document.getElementById('ar-min'); if (+mn.value > +e.target.value) mn.value = e.target.value;
-  };
-  document.getElementById('ar-add').onclick = addRoutineToPhase;
-  document.getElementById('ar-title').addEventListener('keydown', e => { if (e.key === 'Enter') addRoutineToPhase(); });
-}
-
-function addRoutineToPhase() {
-  const phase = phases.find(p => p.id === currentPhaseId);
-  if (!phase) return;
-  const title = document.getElementById('ar-title').value.trim();
-  if (!title) { document.getElementById('ar-title').focus(); return; }
-  const min = +document.getElementById('ar-min').value || 1;
-  const max = Math.max(min, +document.getElementById('ar-max').value || min);
-  phase.routines.push({ id: uid(), title, cat: document.getElementById('ar-cat').value, perWeekMin: min, perWeekMax: max });
-  save(); renderPhase(); toast('Routine added');  // form resets on re-render
-}
-
-function addGoalToPhase() {
-  const phase = phases.find(p => p.id === currentPhaseId);
-  if (!phase) return;
-  const title = document.getElementById('ag-title').value.trim();
-  const date  = document.getElementById('ag-date').value;
-  if (!title) { document.getElementById('ag-title').focus(); return; }
-  if (!date)  { document.getElementById('ag-date').focus(); toast('Set a date for this goal'); return; }
-  phase.goals.push({ id: uid(), title, date, cat: document.getElementById('ag-cat').value });
-  save(); renderPhase(); toast('Goal added');  // form resets on re-render
+  document.getElementById('phase-content').querySelectorAll('[data-edit-routine]').forEach(el => {
+    el.onclick = () => { const r = phase.routines.find(x => x.id === el.dataset.editRoutine); if (r) openEditor('routine', r); };
+  });
+  document.getElementById('phase-content').querySelectorAll('[data-edit-appt]').forEach(el => {
+    el.onclick = () => { const a = phase.appointments.find(x => x.id === el.dataset.editAppt); if (a) openEditor('appointment', a); };
+  });
 }
 
 // ── DAY VIEW ───────────────────────────────────────────────────────────────
@@ -1214,6 +1346,24 @@ function renderDay() {
       }).join('')}</div>
     </div>`;
 
+  // Appointments on this day
+  const dayAppts = (phase.appointments||[]).filter(a => a.date === iso)
+    .sort((a, b) => (a.time||'') < (b.time||'') ? -1 : 1);
+  const apptHTML = dayAppts.length === 0 ? '' : `
+    <div class="panel">
+      <div class="panel-title">Appointments</div>
+      <div class="task-list">${dayAppts.map(a => {
+        const col = CATS[a.cat] ? CATS[a.cat].color : 'var(--muted)';
+        return `<div class="task-item">
+          <button class="task-check ${a.done?'is-done':''}" data-appt-done="${a.id}">${svgCheck()}</button>
+          <div class="task-body editable" data-edit-appt="${a.id}">
+            <div class="task-title ${a.done?'is-done':''}">${escapeHtml(a.title)}</div>
+            <div class="task-sched">${a.time ? `🕑 ${a.time} · ` : ''}<span style="color:${col};font-weight:600">${CATS[a.cat] ? CATS[a.cat].label : 'Other'}</span></div>
+          </div>
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+
   // Tasks
   const dayTasks = (phase.tasks||[]).filter(t => t.date === iso);
   const taskRows = dayTasks.length === 0
@@ -1224,15 +1374,12 @@ function renderDay() {
         const col    = ci >= 0 ? GOAL_PALETTE[ci % GOAL_PALETTE.length] : null;
         return `<div class="task-item">
           <button class="task-check ${t.done?'is-done':''}" data-toggle="${t.id}">${svgCheck()}</button>
-          <div class="task-body">
+          <div class="task-body editable" data-edit-task="${t.id}">
             <div class="task-title ${t.done?'is-done':''}">${escapeHtml(t.title)}</div>
             ${linked && col ? `<div class="task-sched"><span style="color:${col.color};font-size:12px;font-weight:600">${escapeHtml(linked.title)}</span></div>` : ''}
           </div>
-          <button class="icon-btn" data-del-task="${t.id}">${svgTrash()}</button>
         </div>`;
       }).join('')}</div>`;
-
-  const goalOptions = `<option value="">No specific goal</option>${(phase.goals||[]).map(g => `<option value="${g.id}">${escapeHtml(g.title)}</option>`).join('')}`;
 
   document.getElementById('day-content').innerHTML = `
     <div class="day-hero">
@@ -1242,39 +1389,39 @@ function renderDay() {
       ${studyTagHTML}
     </div>
     ${deadlineHTML}
+    ${apptHTML}
     ${routineHTML}
     <div class="panel">
-      <div class="panel-title">Tasks</div>
+      <div class="panel-title">Tasks <span class="hint ml">tap a task to edit</span></div>
       ${taskRows}
-      <div class="add-task-row" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-        <input type="text" id="dt-title" placeholder="Add a task for this day…"/>
-        <select id="dt-goal">${goalOptions}</select>
-        <button class="btn sm" id="dt-add">Add</button>
-      </div>
+      <button class="btn ghost wide" id="day-add-task" style="margin-top:12px">+ Add a task to this day</button>
     </div>
   `;
 
-  const doAdd = () => {
-    const title  = document.getElementById('dt-title').value.trim();
-    const goalId = document.getElementById('dt-goal').value || null;
-    if (!title) { document.getElementById('dt-title').focus(); return; }
-    phase.tasks.push({ id: uid(), title, goalId, date: iso, done: false, userPlaced: true });
-    save(); renderDay(); toast('Task added');
-  };
-  document.getElementById('dt-add').onclick = doAdd;
-  document.getElementById('dt-title').addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
+  document.getElementById('day-add-task').onclick = () => openEditor('task', null, iso);
 
+  // Task: toggle done
   document.getElementById('day-content').querySelectorAll('[data-toggle]').forEach(btn => {
     btn.onclick = () => {
       const t = phase.tasks.find(x => x.id === btn.dataset.toggle);
       if (t) { t.done = !t.done; save(); renderDay(); }
     };
   });
-  document.getElementById('day-content').querySelectorAll('[data-del-task]').forEach(btn => {
+  // Task: tap body to edit
+  document.getElementById('day-content').querySelectorAll('[data-edit-task]').forEach(el => {
+    el.onclick = () => { const t = phase.tasks.find(x => x.id === el.dataset.editTask); if (t) openEditor('task', t); };
+  });
+
+  // Appointment: toggle done
+  document.getElementById('day-content').querySelectorAll('[data-appt-done]').forEach(btn => {
     btn.onclick = () => {
-      phase.tasks = phase.tasks.filter(x => x.id !== btn.dataset.delTask);
-      rebuildAuto(phase); save(); renderDay(); toast('Task removed');
+      const a = phase.appointments.find(x => x.id === btn.dataset.apptDone);
+      if (a) { a.done = !a.done; save(); renderDay(); }
     };
+  });
+  // Appointment: tap body to edit
+  document.getElementById('day-content').querySelectorAll('[data-edit-appt]').forEach(el => {
+    el.onclick = () => { const a = phase.appointments.find(x => x.id === el.dataset.editAppt); if (a) openEditor('appointment', a); };
   });
 
   // Routine session: mark done / undo
@@ -1304,7 +1451,12 @@ document.getElementById('setup-back').onclick    = () => showView('home');
 document.getElementById('phase-back').onclick    = () => showView('home');
 document.getElementById('day-back').onclick      = () => showView('phase');
 document.getElementById('s-add-goal').onclick    = addGoalRow;
-document.getElementById('s-add-routine').onclick = addRoutineRow;
+document.getElementById('phase-add').onclick     = () => openTypePicker(null);
+document.getElementById('day-add').onclick       = () => openTypePicker(currentDayISO);
+document.getElementById('modal-close').innerHTML = svgClose();
+document.getElementById('modal-close').onclick   = closeModal;
+document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('modal').style.display === 'flex') closeModal(); });
 document.getElementById('s-submit').onclick      = submitPhase;
 document.getElementById('s-title').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('s-end').focus(); });
 

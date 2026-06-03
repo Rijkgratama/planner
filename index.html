@@ -95,6 +95,14 @@
   .goal-row .gr-date  { width: 150px; flex-shrink: 0; }
   .goal-row .gr-cat   { width: 120px; flex-shrink: 0; }
 
+  .routine-row { display: flex; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .routine-row:last-of-type { border-bottom: none; }
+  .routine-row .rr-title { flex: 1; min-width: 140px; }
+  .routine-row .rr-cat   { width: 120px; flex-shrink: 0; }
+  .freq-ctrl { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+  .freq-ctrl select { width: auto; padding: 8px 8px; }
+  .freq-ctrl .freq-sep, .freq-ctrl .freq-unit { font-size: 13px; color: var(--muted); white-space: nowrap; }
+
   /* ── PHASE HERO ── */
   .phase-hero { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 14px; }
   .phase-hero h2 { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 500; margin-bottom: 4px; }
@@ -142,6 +150,9 @@
   .cal-strip { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; }
   /* task dot */
   .cal-task-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); opacity: 0.5; z-index: 1; }
+  /* routine + task dots row */
+  .cal-dots { display: flex; gap: 3px; z-index: 1; margin-top: 1px; }
+  .cal-dot { width: 5px; height: 5px; border-radius: 50%; }
 
   /* ── GOAL LEGEND ── */
   .goal-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -258,6 +269,11 @@
       <div id="s-goals-list"></div>
       <button class="btn ghost" style="margin-top:10px" id="s-add-goal">+ Add a goal</button>
     </div>
+    <div class="panel">
+      <div class="panel-title">Weekly routines <span class="hint">— things you want to do X× / week</span></div>
+      <div id="s-routines-list"></div>
+      <button class="btn ghost" style="margin-top:10px" id="s-add-routine">+ Add a routine</button>
+    </div>
     <button class="btn wide" id="s-submit">Lock in →</button>
   </div>
 
@@ -287,7 +303,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.8';
+const APP_VERSION = '0.9';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -361,7 +377,12 @@ function fmtWeekday(iso) {
 function load() {
   try { const r = localStorage.getItem(PKEY); phases = r ? JSON.parse(r) : []; }
   catch(e) { phases = []; }
-  phases.forEach(p => { if (!p.tasks) p.tasks = []; if (!p.goals) p.goals = []; });
+  phases.forEach(p => {
+    if (!p.tasks) p.tasks = [];
+    if (!p.goals) p.goals = [];
+    if (!p.routines) p.routines = [];
+    if (!p.routineLog) p.routineLog = {};
+  });
 }
 function save() { try { localStorage.setItem(PKEY, JSON.stringify(phases)); } catch(e) {} }
 
@@ -445,13 +466,25 @@ function renderHome() {
 // ── SETUP ──────────────────────────────────────────────────────────────────
 
 let setupGoals = [];
+let setupRoutines = [];
+
+function catOptions(sel) {
+  return Object.entries(CATS).map(([k, v]) => `<option value="${k}"${sel === k ? ' selected' : ''}>${v.label}</option>`).join('');
+}
+function freqOptions(sel) {
+  let o = '';
+  for (let i = 1; i <= 7; i++) o += `<option value="${i}"${+sel === i ? ' selected' : ''}>${i}</option>`;
+  return o;
+}
 
 function initSetup() {
   document.getElementById('s-title').value = '';
   document.getElementById('s-start').value = todayISO();
   document.getElementById('s-end').value   = '';
   setupGoals = [];
+  setupRoutines = [];
   addGoalRow();
+  renderRoutineRows();
 }
 
 function renderGoalRows() {
@@ -481,6 +514,45 @@ function addGoalRow() {
   setTimeout(() => { const ins = document.querySelectorAll('.gr-title'); if (ins.length) ins[ins.length-1].focus(); }, 40);
 }
 
+function renderRoutineRows() {
+  const el = document.getElementById('s-routines-list');
+  if (!setupRoutines.length) { el.innerHTML = '<div class="no-items">No routines yet — optional.</div>'; return; }
+  el.innerHTML = setupRoutines.map((r, i) => `
+    <div class="routine-row" data-i="${i}">
+      <input class="rr-title" type="text" placeholder="Routine (e.g. Exercise, Walk dog)" value="${escapeHtml(r.title||'')}"/>
+      <div class="freq-ctrl">
+        <select class="rr-min">${freqOptions(r.perWeekMin)}</select>
+        <span class="freq-sep">–</span>
+        <select class="rr-max">${freqOptions(r.perWeekMax)}</select>
+        <span class="freq-unit">× / week</span>
+      </div>
+      <select class="rr-cat">${catOptions(r.cat)}</select>
+      <button class="icon-btn" data-del-rt="${i}">${svgTrash()}</button>
+    </div>`).join('');
+  el.querySelectorAll('.routine-row').forEach(row => {
+    const i = +row.dataset.i;
+    row.querySelector('.rr-title').oninput = e => { setupRoutines[i].title = e.target.value; };
+    row.querySelector('.rr-min').onchange = e => {
+      setupRoutines[i].perWeekMin = +e.target.value;
+      if (setupRoutines[i].perWeekMax < +e.target.value) { setupRoutines[i].perWeekMax = +e.target.value; renderRoutineRows(); }
+    };
+    row.querySelector('.rr-max').onchange = e => {
+      setupRoutines[i].perWeekMax = +e.target.value;
+      if (setupRoutines[i].perWeekMin > +e.target.value) { setupRoutines[i].perWeekMin = +e.target.value; renderRoutineRows(); }
+    };
+    row.querySelector('.rr-cat').onchange = e => { setupRoutines[i].cat = e.target.value; };
+  });
+  el.querySelectorAll('[data-del-rt]').forEach(btn => {
+    btn.onclick = () => { setupRoutines.splice(+btn.dataset.delRt, 1); renderRoutineRows(); };
+  });
+}
+
+function addRoutineRow() {
+  setupRoutines.push({ title:'', perWeekMin:2, perWeekMax:3, cat:'sport' });
+  renderRoutineRows();
+  setTimeout(() => { const ins = document.querySelectorAll('.rr-title'); if (ins.length) ins[ins.length-1].focus(); }, 40);
+}
+
 function submitPhase() {
   const title = document.getElementById('s-title').value.trim();
   const start = document.getElementById('s-start').value;
@@ -490,7 +562,11 @@ function submitPhase() {
   if (end < start) { toast('End date must be after start date'); return; }
   const goals = setupGoals.filter(g => g.title.trim() && g.date)
     .map(g => ({ id: uid(), title: g.title.trim(), date: g.date, cat: g.cat||'study' }));
-  phases.push({ id: uid(), title, start, end, goals, tasks: [] });
+  const routines = setupRoutines.filter(r => r.title.trim()).map(r => {
+    const min = r.perWeekMin || 1, max = Math.max(min, r.perWeekMax || min);
+    return { id: uid(), title: r.title.trim(), cat: r.cat||'sport', perWeekMin: min, perWeekMax: max };
+  });
+  phases.push({ id: uid(), title, start, end, goals, tasks: [], routines, routineLog: {} });
   save(); currentPhaseId = phases[phases.length-1].id; toast('Locked in!'); showView('phase');
 }
 
@@ -536,6 +612,108 @@ function buildGoalColorMap(phase) {
   (phase.goals||[]).slice().sort((a,b) => a.date < b.date ? -1 : 1)
     .forEach((g, i) => { map[g.id] = i; });
   return map;
+}
+
+// ── ROUTINE PLAN (weekly-target commitments, auto-distributed) ──────────────
+
+function mondayOf(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  const dow = (d.getDay() + 6) % 7;          // 0 = Monday
+  d.setDate(d.getDate() - dow);
+  return isoFromDate(d);
+}
+function routineKey(rid, date) { return `${rid}|${date}`; }
+function weekRangeFrom(mondayISO) {
+  const e = new Date(mondayISO + 'T00:00:00');
+  e.setDate(e.getDate() + 6);
+  return [mondayISO, isoFromDate(e)];
+}
+
+// Returns { 'YYYY-MM-DD': [routineId, ...] } — planned routine sessions per day.
+function computeRoutinePlan(phase) {
+  const routines = phase.routines || [];
+  const plan = {};
+  if (!routines.length) return plan;
+
+  const log   = phase.routineLog || {};
+  const today = todayISO();
+
+  // Exam days stay clear of routines.
+  const examDay = {};
+  (phase.goals || []).forEach(g => { examDay[g.date] = true; });
+
+  // Daily load from one-off tasks; routine sessions add to it as we place them.
+  const load = {};
+  (phase.tasks || []).forEach(t => { if (t.date && !t.done) load[t.date] = (load[t.date] || 0) + 1; });
+
+  const add = (date, rid) => {
+    const arr = (plan[date] = plan[date] || []);
+    if (!arr.includes(rid)) { arr.push(rid); load[date] = (load[date] || 0) + 1; }
+  };
+
+  // 1) Pin every logged session (done or skipped) to its date so it always renders there.
+  for (const key in log) {
+    const sep  = key.lastIndexOf('|');
+    const rid  = key.slice(0, sep);
+    const date = key.slice(sep + 1);
+    if (routines.some(r => r.id === rid)) add(date, rid);
+  }
+
+  // 2) Walk each week (Mon-anchored) overlapping the phase.
+  const weeks = [];
+  let m = mondayOf(phase.start);
+  const lastM = mondayOf(phase.end);
+  while (m <= lastM) {
+    weeks.push(m);
+    const d = new Date(m + 'T00:00:00'); d.setDate(d.getDate() + 7); m = isoFromDate(d);
+  }
+
+  // 3) Top each routine up to its weekly target on the lightest eligible days.
+  routines.forEach(r => {
+    const target = Math.max(1, r.perWeekMax || r.perWeekMin || 1);
+    weeks.forEach(wk => {
+      const [wkStart, wkEnd] = weekRangeFrom(wk);
+
+      const days = [];
+      const d = new Date(wk + 'T00:00:00');
+      for (let i = 0; i < 7; i++) {
+        const iso = isoFromDate(d); d.setDate(d.getDate() + 1);
+        if (iso < phase.start || iso > phase.end) continue;
+        if (iso < today) continue;          // never plan in the past
+        if (examDay[iso]) continue;         // keep exam days clear
+        days.push(iso);
+      }
+
+      // Count what's already placed/logged for this routine this week.
+      let have = 0;
+      for (const date in plan) {
+        if (date >= wkStart && date <= wkEnd && plan[date].includes(r.id)) have++;
+      }
+      const need = target - have;
+      if (need <= 0) return;
+
+      const candidates = days.filter(iso => !(plan[iso] || []).includes(r.id));
+      candidates.sort((a, b) => (load[a] || 0) - (load[b] || 0) || (a < b ? -1 : 1));
+      for (let i = 0; i < need && i < candidates.length; i++) add(candidates[i], r.id);
+    });
+  });
+
+  return plan;
+}
+
+// How many sessions of a routine are marked done in the week containing `refISO`.
+function routineWeekProgress(phase, routine, refISO) {
+  const [wkStart, wkEnd] = weekRangeFrom(mondayOf(refISO));
+  let done = 0;
+  const log = phase.routineLog || {};
+  for (const key in log) {
+    if (log[key] !== 'done') continue;
+    const sep = key.lastIndexOf('|');
+    if (key.slice(0, sep) !== routine.id) continue;
+    const date = key.slice(sep + 1);
+    if (date >= wkStart && date <= wkEnd) done++;
+  }
+  return done;
 }
 
 // ── USER-TASK SCHEDULER ────────────────────────────────────────────────────
@@ -584,7 +762,9 @@ function rebuildAuto(phase) {
 
 // ── CALENDAR ───────────────────────────────────────────────────────────────
 
-function buildCalendar(phase, dayPlan, colorMap) {
+function buildCalendar(phase, dayPlan, colorMap, routinePlan) {
+  routinePlan = routinePlan || {};
+  const rLog = phase.routineLog || {};
   const today = todayISO();
   const taskMap = {};
   (phase.tasks||[]).forEach(t => { if (t.date) (taskMap[t.date] = taskMap[t.date]||[]).push(t); });
@@ -644,10 +824,20 @@ function buildCalendar(phase, dayPlan, colorMap) {
         cls.push('is-today');
       }
 
-      // Task dot
-      const tasks = taskMap[iso]||[];
-      if (tasks.length && !entry?.startsWith('exam:')) {
-        inner += `<span class="cal-task-dot"></span>`;
+      // Routine + task dots
+      const isExamCell = entry && entry.startsWith('exam:');
+      if (!isExamCell) {
+        const dots = [];
+        (routinePlan[iso] || []).forEach(rid => {
+          const r = (phase.routines || []).find(x => x.id === rid);
+          if (!r) return;
+          const st  = rLog[`${rid}|${iso}`];
+          const col = CATS[r.cat] ? CATS[r.cat].color : 'var(--muted)';
+          const op  = st === 'done' ? 1 : st === 'skip' ? 0.25 : 0.6;
+          dots.push(`<span class="cal-dot" style="background:${col};opacity:${op}"></span>`);
+        });
+        if ((taskMap[iso] || []).length) dots.push(`<span class="cal-dot" style="background:var(--muted);opacity:.45"></span>`);
+        if (dots.length) inner += `<span class="cal-dots">${dots.slice(0, 4).join('')}</span>`;
       }
 
       cells += `<div class="${cls.join(' ')}"${extraStyle ? ` style="${extraStyle}"` : ''} data-date="${iso}">${inner}</div>`;
@@ -669,7 +859,7 @@ function buildLegend(phase, colorMap) {
     const col = GOAL_PALETTE[ci % GOAL_PALETTE.length];
     return `<span class="legend-item"><span class="legend-dot" style="background:${col.color}"></span>${escapeHtml(g.title)}</span>`;
   }).join('');
-  return `<div class="goal-legend">${items}<span class="legend-hint">Filled cell = exam day · Strip color = study focus</span></div>`;
+  return `<div class="goal-legend">${items}<span class="legend-hint">Filled cell = exam day · Strip color = study focus · Dots = routines / tasks</span></div>`;
 }
 
 // ── GOAL PROGRESS BLOCKS ───────────────────────────────────────────────────
@@ -734,6 +924,41 @@ function buildGoalBlocks(phase, dayPlan, colorMap) {
   }).join('');
 }
 
+function freqLabel(r) {
+  return r.perWeekMin === r.perWeekMax ? `${r.perWeekMax}× / week` : `${r.perWeekMin}–${r.perWeekMax}× / week`;
+}
+
+function buildRoutineBlocks(phase) {
+  const routines = phase.routines || [];
+  if (!routines.length) return '<div class="no-items">No routines yet — add one below.</div>';
+  const today = todayISO();
+  return routines.map(r => {
+    const col    = CATS[r.cat] ? CATS[r.cat].color : 'var(--muted)';
+    const target = r.perWeekMax || r.perWeekMin || 1;
+    const done   = routineWeekProgress(phase, r, today);
+    const pct    = Math.min(100, Math.round(done / target * 100));
+    const met    = done >= (r.perWeekMin || target);
+    return `<div class="goal-block" data-rid="${r.id}">
+      <div class="gb-header">
+        <div class="gb-left">
+          <div class="gb-name-row">
+            <span class="goal-color-dot" style="background:${col}"></span>
+            <span class="gb-title">${escapeHtml(r.title)}</span>
+          </div>
+          <div class="gb-sub">${freqLabel(r)} · ${CATS[r.cat] ? CATS[r.cat].label : 'Other'}</div>
+        </div>
+        <div class="gb-right">
+          <span class="gb-count">${done}/${target} this week${met ? ' ✓' : ''}</span>
+          <button class="icon-btn" data-del-rt="${r.id}" aria-label="Delete">${svgTrash()}</button>
+        </div>
+      </div>
+      <div class="gb-progress">
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:${col}"></div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 // ── PHASE VIEW ─────────────────────────────────────────────────────────────
 
 function renderPhase() {
@@ -748,8 +973,9 @@ function renderPhase() {
   const elapsed  = Math.max(0, Math.round((new Date(today+'T00:00:00') - new Date(phase.start+'T00:00:00')) / 86400000));
   const pct      = Math.min(100, Math.round(elapsed / total * 100));
 
-  const dayPlan  = computeDayPlan(phase);
-  const colorMap = buildGoalColorMap(phase);
+  const dayPlan     = computeDayPlan(phase);
+  const colorMap    = buildGoalColorMap(phase);
+  const routinePlan = computeRoutinePlan(phase);
   const upcoming = (phase.goals||[]).filter(g => daysUntil(g.date) >= 0).length;
   const passed   = (phase.goals||[]).filter(g => daysUntil(g.date) <  0).length;
 
@@ -773,7 +999,7 @@ function renderPhase() {
         </div>
         <div class="panel">
           <div class="panel-title">Calendar <span class="hint">— tap a day to open it</span></div>
-          ${buildCalendar(phase, dayPlan, colorMap)}
+          ${buildCalendar(phase, dayPlan, colorMap, routinePlan)}
           ${buildLegend(phase, colorMap)}
         </div>
       </div>
@@ -785,9 +1011,29 @@ function renderPhase() {
             <div class="add-goal-row" style="margin-top:0;padding-top:0;border-top:none">
               <input type="text" id="ag-title" placeholder="Goal name…"/>
               <input type="date" id="ag-date"/>
-              <select id="ag-cat">${Object.entries(CATS).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join('')}</select>
+              <select id="ag-cat">${catOptions()}</select>
               <button class="btn sm" id="ag-add">Add</button>
               <button class="btn sm ghost" id="ag-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Weekly routines <button class="btn xs ghost ml" id="ar-toggle">+ Add a routine</button></div>
+          ${buildRoutineBlocks(phase)}
+          <div id="ar-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+            <div class="routine-row" style="border-bottom:none;padding:0">
+              <input class="rr-title" type="text" id="ar-title" placeholder="Routine name…"/>
+              <div class="freq-ctrl">
+                <select id="ar-min">${freqOptions(2)}</select>
+                <span class="freq-sep">–</span>
+                <select id="ar-max">${freqOptions(3)}</select>
+                <span class="freq-unit">× / week</span>
+              </div>
+              <select class="rr-cat" id="ar-cat">${catOptions('sport')}</select>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn sm" id="ar-add">Add</button>
+              <button class="btn sm ghost" id="ar-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -831,6 +1077,51 @@ function renderPhase() {
   };
   document.getElementById('ag-add').onclick = addGoalToPhase;
   document.getElementById('ag-title').addEventListener('keydown', e => { if (e.key === 'Enter') addGoalToPhase(); });
+
+  // Routine delete
+  document.getElementById('phase-content').querySelectorAll('[data-del-rt]').forEach(btn => {
+    btn.onclick = () => {
+      const r = (phase.routines||[]).find(x => x.id === btn.dataset.delRt);
+      phase.routines = (phase.routines||[]).filter(x => x.id !== btn.dataset.delRt);
+      // drop its log entries too
+      Object.keys(phase.routineLog||{}).forEach(k => { if (k.slice(0, k.lastIndexOf('|')) === btn.dataset.delRt) delete phase.routineLog[k]; });
+      save(); renderPhase(); toast(r ? `Removed "${r.title}"` : 'Routine removed');
+    };
+  });
+
+  // Routine add — toggle form visibility
+  const arForm   = document.getElementById('ar-form');
+  const arToggle = document.getElementById('ar-toggle');
+  arToggle.onclick = () => {
+    const open = arForm.style.display === 'none';
+    arForm.style.display = open ? '' : 'none';
+    arToggle.textContent = open ? '✕ Cancel' : '+ Add a routine';
+    if (open) document.getElementById('ar-title').focus();
+  };
+  document.getElementById('ar-cancel').onclick = () => {
+    arForm.style.display = 'none';
+    arToggle.textContent = '+ Add a routine';
+  };
+  // keep min ≤ max in the add form
+  document.getElementById('ar-min').onchange = e => {
+    const mx = document.getElementById('ar-max'); if (+mx.value < +e.target.value) mx.value = e.target.value;
+  };
+  document.getElementById('ar-max').onchange = e => {
+    const mn = document.getElementById('ar-min'); if (+mn.value > +e.target.value) mn.value = e.target.value;
+  };
+  document.getElementById('ar-add').onclick = addRoutineToPhase;
+  document.getElementById('ar-title').addEventListener('keydown', e => { if (e.key === 'Enter') addRoutineToPhase(); });
+}
+
+function addRoutineToPhase() {
+  const phase = phases.find(p => p.id === currentPhaseId);
+  if (!phase) return;
+  const title = document.getElementById('ar-title').value.trim();
+  if (!title) { document.getElementById('ar-title').focus(); return; }
+  const min = +document.getElementById('ar-min').value || 1;
+  const max = Math.max(min, +document.getElementById('ar-max').value || min);
+  phase.routines.push({ id: uid(), title, cat: document.getElementById('ar-cat').value, perWeekMin: min, perWeekMax: max });
+  save(); renderPhase(); toast('Routine added');  // form resets on re-render
 }
 
 function addGoalToPhase() {
@@ -857,8 +1148,9 @@ function renderDay() {
   document.getElementById('day-title-bar').textContent = weekday;
 
   // Day plan info
-  const dayPlan  = computeDayPlan(phase);
-  const colorMap = buildGoalColorMap(phase);
+  const dayPlan     = computeDayPlan(phase);
+  const colorMap    = buildGoalColorMap(phase);
+  const routinePlan = computeRoutinePlan(phase);
   const entry    = dayPlan[iso];
   let studyTagHTML = '';
   if (entry) {
@@ -899,6 +1191,29 @@ function renderDay() {
       }).join('')}
     </div>`;
 
+  // Routines planned for this day
+  const rLog   = phase.routineLog || {};
+  const rToday = routinePlan[iso] || [];
+  const routineHTML = rToday.length === 0 ? '' : `
+    <div class="panel">
+      <div class="panel-title">Routines</div>
+      <div class="task-list">${rToday.map(rid => {
+        const r = (phase.routines||[]).find(x => x.id === rid);
+        if (!r) return '';
+        const st   = rLog[`${rid}|${iso}`];
+        const col  = CATS[r.cat] ? CATS[r.cat].color : 'var(--muted)';
+        const done = st === 'done', skip = st === 'skip';
+        return `<div class="task-item">
+          <button class="task-check ${done?'is-done':''}" data-rt-done="${rid}">${svgCheck()}</button>
+          <div class="task-body">
+            <div class="task-title ${skip?'is-done':''}">${escapeHtml(r.title)}</div>
+            <div class="task-sched"><span style="color:${col};font-weight:600">${freqLabel(r)}</span>${skip?' · skipped this session':''}</div>
+          </div>
+          <button class="btn xs ghost" data-rt-skip="${rid}">${skip?'Undo':'Skip'}</button>
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+
   // Tasks
   const dayTasks = (phase.tasks||[]).filter(t => t.date === iso);
   const taskRows = dayTasks.length === 0
@@ -927,6 +1242,7 @@ function renderDay() {
       ${studyTagHTML}
     </div>
     ${deadlineHTML}
+    ${routineHTML}
     <div class="panel">
       <div class="panel-title">Tasks</div>
       ${taskRows}
@@ -960,6 +1276,25 @@ function renderDay() {
       rebuildAuto(phase); save(); renderDay(); toast('Task removed');
     };
   });
+
+  // Routine session: mark done / undo
+  document.getElementById('day-content').querySelectorAll('[data-rt-done]').forEach(btn => {
+    btn.onclick = () => {
+      const k = `${btn.dataset.rtDone}|${iso}`;
+      if (phase.routineLog[k] === 'done') delete phase.routineLog[k];
+      else phase.routineLog[k] = 'done';
+      save(); renderDay();
+    };
+  });
+  // Routine session: skip / undo skip
+  document.getElementById('day-content').querySelectorAll('[data-rt-skip]').forEach(btn => {
+    btn.onclick = () => {
+      const k = `${btn.dataset.rtSkip}|${iso}`;
+      if (phase.routineLog[k] === 'skip') delete phase.routineLog[k];
+      else phase.routineLog[k] = 'skip';
+      save(); renderDay();
+    };
+  });
 }
 
 // ── EVENTS ─────────────────────────────────────────────────────────────────
@@ -969,6 +1304,7 @@ document.getElementById('setup-back').onclick    = () => showView('home');
 document.getElementById('phase-back').onclick    = () => showView('home');
 document.getElementById('day-back').onclick      = () => showView('phase');
 document.getElementById('s-add-goal').onclick    = addGoalRow;
+document.getElementById('s-add-routine').onclick = addRoutineRow;
 document.getElementById('s-submit').onclick      = submitPhase;
 document.getElementById('s-title').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('s-end').focus(); });
 

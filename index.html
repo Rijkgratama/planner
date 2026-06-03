@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lock In Planner</title>
+<meta name="theme-color" content="#B5512F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Planner">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23B5512F'/><text x='50' y='70' font-size='60' text-anchor='middle' fill='white' font-family='Georgia,serif'>P</text></svg>">
+<style>
+  :root {
+    --paper: #F6F2EA; --surface: #FFFFFF; --surface-2: #FCFAF5;
+    --ink: #2A2620; --muted: #8C8475; --faint: #B8B0A1; --line: #E7E1D5;
+    --accent: #B5512F; --accent-soft: #F3E3DB;
+    --c-study: #3E6DB5; --c-study-bg: #E7EEF8;
+    --c-sport: #4F8A3D; --c-sport-bg: #E8F1E2;
+    --c-house: #C08A2B; --c-house-bg: #F6ECD6;
+    --c-appt:  #B5512F; --c-appt-bg:  #F4E2DA;
+    --c-other: #8C8475; --c-other-bg: #ECE7DD;
+    --urgent: #C0392B; --urgent-bg: #FDECEA;
+    --soon: #C08A2B; --soon-bg: #FEF3DC;
+    --ok: #4F8A3D; --ok-bg: #E8F1E2;
+    --radius: 14px; --radius-sm: 9px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--paper); min-height: 100vh; }
+  body { font-family: 'Hanken Grotesk', sans-serif; color: var(--ink); line-height: 1.5; -webkit-font-smoothing: antialiased; padding: 28px 40px 60px; }
+  .app { max-width: 1120px; margin: 0 auto; }
+  @media (max-width: 780px) {
+    body { padding: 20px 16px 50px; }
+  }
+
+  .kicker { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  h1 { font-family: 'Fraunces', serif; font-weight: 500; font-size: 38px; line-height: 1.05; letter-spacing: -0.01em; margin: 4px 0 6px; }
+  .subtitle { color: var(--muted); font-size: 15px; }
+  header { margin-bottom: 24px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+  .panel-title { font-family: 'Fraunces', serif; font-size: 17px; font-weight: 500; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .panel-title .hint { font-family: 'Hanken Grotesk'; font-size: 12px; color: var(--faint); font-weight: 400; }
+  .panel-title .ml { margin-left: auto; }
+
+  input[type=text], input[type=date], select {
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+    border-radius: var(--radius-sm); padding: 10px 12px; font: inherit; font-size: 14px;
+    outline: none; transition: border-color .15s, box-shadow .15s; width: 100%;
+  }
+  input[type=text]:focus, input[type=date]:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 11px 20px; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; transition: filter .15s, transform .05s; white-space: nowrap; }
+  .btn:hover { filter: brightness(1.06); }
+  .btn:active { transform: scale(0.98); }
+  .btn.ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+  .btn.ghost:hover { background: var(--surface-2); filter: none; border-color: var(--faint); }
+  .btn.wide { width: 100%; text-align: center; margin-top: 6px; padding: 14px; font-size: 16px; }
+  .btn.sm { padding: 7px 13px; font-size: 13px; }
+  .btn.xs { padding: 5px 10px; font-size: 12px; }
+
+  .icon-btn { background: none; border: none; color: var(--faint); cursor: pointer; padding: 6px; border-radius: 7px; line-height: 0; transition: color .15s, background .15s; }
+  .icon-btn:hover { color: var(--accent); background: var(--accent-soft); }
+  .icon-btn svg { width: 16px; height: 16px; }
+
+  .back-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+  .back-bar .page-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 500; }
+
+  /* ── HOME ── */
+  .phase-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 12px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+  .phase-card:hover { border-color: #D0C8B8; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .pc-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .pc-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 500; }
+  .pc-dates { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .pc-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .pc-badge { font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 100px; white-space: nowrap; }
+  .pc-goals { display: flex; flex-wrap: wrap; gap: 6px; }
+  .goal-chip { font-size: 12px; padding: 4px 10px; border-radius: 100px; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); }
+  .goal-chip.urgent { background: var(--urgent-bg); color: var(--urgent); border-color: transparent; }
+  .goal-chip.soon   { background: var(--soon-bg);   color: var(--soon);   border-color: transparent; }
+  .goal-chip.ok     { background: var(--ok-bg);     color: var(--ok);     border-color: transparent; }
+  .goal-chip.past   { opacity: 0.5; }
+
+  /* ── SETUP ── */
+  .date-range-row { display: flex; gap: 12px; align-items: flex-end; }
+  .date-field { flex: 1; }
+  .date-field label { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .date-sep { color: var(--faint); font-size: 20px; padding-bottom: 10px; }
+  .goal-row { display: flex; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .goal-row:last-of-type { border-bottom: none; }
+  .goal-row .gr-title { flex: 1; }
+  .goal-row .gr-date  { width: 150px; flex-shrink: 0; }
+  .goal-row .gr-cat   { width: 120px; flex-shrink: 0; }
+
+  /* ── PHASE HERO ── */
+  .phase-hero { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 14px; }
+  .phase-hero h2 { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 500; margin-bottom: 4px; }
+  .ph-dates { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
+  .progress-track { height: 6px; background: var(--line); border-radius: 100px; overflow: hidden; margin-bottom: 6px; }
+  .progress-fill { height: 100%; border-radius: 100px; transition: width .4s; }
+  .progress-label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+
+  .stats-row { display: flex; gap: 10px; margin-bottom: 14px; }
+  .stat { flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .stat .num { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 500; line-height: 1; }
+  .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* ── CALENDAR ── */
+  .cal-month { margin-bottom: 22px; }
+  .cal-month:last-child { margin-bottom: 0; }
+  .cal-month-label { font-family: 'Fraunces', serif; font-size: 16px; font-weight: 500; margin-bottom: 8px; }
+  .cal-week-row, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal-week-row { margin-bottom: 3px; }
+  .cal-week-row span { text-align: center; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 2px 0; }
+  .cal-cell {
+    aspect-ratio: 1; border-radius: 8px; cursor: pointer; position: relative;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    background: var(--surface); border: 1px solid var(--line);
+    transition: filter .12s; overflow: hidden;
+    user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  .cal-cell:hover:not(.out-phase):not(.empty) { filter: brightness(0.94); }
+  .cal-cell.empty     { background: transparent; border-color: transparent; cursor: default; pointer-events: none; }
+  .cal-cell.out-phase { background: transparent; border-color: transparent; cursor: default; pointer-events: none; }
+  .cal-cell.out-phase .cal-num { color: var(--faint); }
+  .cal-cell.is-weekend:not(.out-phase) { background: var(--surface-2); }
+  .cal-cell.is-past:not(.is-exam) { opacity: 0.55; }
+  .cal-num { font-size: 13px; font-weight: 500; color: var(--ink); line-height: 1; z-index: 1; }
+  /* today ring */
+  .cal-cell.is-today:not(.is-exam) .cal-num {
+    background: var(--accent); color: #fff; border-radius: 50%;
+    width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+  }
+  /* exam day: full colored background */
+  .cal-cell.is-exam .cal-num { color: #fff; font-weight: 700; z-index: 1; }
+  .cal-exam-lbl { font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.9); z-index: 1; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; padding: 0 3px; }
+  /* study day: thin colored strip at bottom */
+  .cal-strip { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; }
+  /* task dot */
+  .cal-task-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); opacity: 0.5; z-index: 1; }
+
+  /* ── GOAL LEGEND ── */
+  .goal-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-hint { font-size: 11px; color: var(--faint); width: 100%; }
+
+  /* ── GOAL PROGRESS BLOCKS ── */
+  .goal-block { padding: 16px 0; }
+  .goal-block + .goal-block { border-top: 1px solid var(--line); }
+  .gb-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+  .gb-left { flex: 1; min-width: 0; }
+  .gb-name-row { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+  .goal-color-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .gb-title { font-size: 15px; font-weight: 600; }
+  .gb-sub { font-size: 13px; color: var(--muted); }
+  .gb-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .gb-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .gb-progress { margin-bottom: 10px; }
+
+  .countdown-badge { flex-shrink: 0; font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 100px; }
+  .countdown-badge.urgent { background: var(--urgent-bg); color: var(--urgent); }
+  .countdown-badge.soon   { background: var(--soon-bg);   color: var(--soon); }
+  .countdown-badge.ok     { background: var(--ok-bg);     color: var(--ok); }
+  .countdown-badge.past   { background: var(--surface-2); color: var(--faint); }
+
+  /* ── TASK ITEMS ── */
+  .task-list { margin: 6px 0; }
+  .task-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .task-item:last-child { border-bottom: none; }
+  .task-check {
+    width: 19px; height: 19px; border-radius: 6px; border: 1.8px solid var(--faint);
+    background: transparent; cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s; padding: 0; line-height: 0;
+  }
+  .task-check:hover { border-color: var(--ok); background: var(--ok-bg); }
+  .task-check.is-done { background: var(--ok); border-color: var(--ok); }
+  .task-check svg { width: 10px; height: 10px; color: #fff; opacity: 0; transition: opacity .1s; }
+  .task-check.is-done svg { opacity: 1; }
+  .task-body { flex: 1; min-width: 0; }
+  .task-title { font-size: 14px; font-weight: 500; }
+  .task-title.is-done { text-decoration: line-through; color: var(--faint); }
+  .task-sched { font-size: 12px; color: var(--faint); margin-top: 1px; }
+  .cat-tag { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 100px; display: inline-block; }
+
+  .add-task-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .add-task-row input[type=text] { flex: 1; min-width: 120px; font-size: 13px; padding: 8px 10px; }
+  .add-task-row select { flex-shrink: 0; font-size: 13px; padding: 8px 10px; width: auto; }
+
+  .add-goal-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .add-goal-row input[type=text] { flex: 1; min-width: 130px; }
+  .add-goal-row input[type=date] { width: 150px; flex-shrink: 0; }
+  .add-goal-row select { width: 120px; flex-shrink: 0; }
+
+  /* ── DAY VIEW ── */
+  .day-hero { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 14px; }
+  .day-name { font-family: 'Fraunces', serif; font-size: 30px; font-weight: 500; margin-bottom: 2px; }
+  .day-date-full { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
+  .day-badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 100px; }
+  .day-goal-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 100px; margin-top: 10px; }
+  .day-goal-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── MISC ── */
+  .empty-state { text-align: center; padding: 52px 20px; color: var(--muted); }
+  .empty-state .big { font-family: 'Fraunces', serif; font-size: 22px; color: var(--ink); margin-bottom: 8px; }
+  .empty-state .sub { margin-bottom: 24px; font-size: 15px; }
+  .no-items { font-size: 13px; color: var(--faint); padding: 4px 0; }
+
+  /* ── PHASE 2-COLUMN LAYOUT ── */
+  .phase-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; align-items: start; }
+  @media (max-width: 780px) { .phase-grid { grid-template-columns: 1fr; } }
+
+  .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 100px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 100; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── HOME ── -->
+  <div id="v-home">
+    <header>
+      <div class="kicker">Lock In Planner</div>
+      <h1 id="greeting">Lock in.</h1>
+      <p class="subtitle">Create a focused planning phase. Set your goals, know your deadlines.</p>
+    </header>
+    <div id="phase-list"></div>
+    <button class="btn wide" id="btn-new-phase">+ Start a new Lock In</button>
+  </div>
+
+  <!-- ── SETUP ── -->
+  <div id="v-setup" style="display:none">
+    <div class="back-bar">
+      <button class="icon-btn" id="setup-back" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 5 5 12 12 19"/></svg>
+      </button>
+      <span class="page-title">New Lock In</span>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Name this phase</div>
+      <input type="text" id="s-title" placeholder="e.g. Exam week, Sprint, Study block…" />
+    </div>
+    <div class="panel">
+      <div class="panel-title">Time period</div>
+      <div class="date-range-row">
+        <div class="date-field"><label>Start</label><input type="date" id="s-start" /></div>
+        <div class="date-sep">→</div>
+        <div class="date-field"><label>End</label><input type="date" id="s-end" /></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Main goals <span class="hint">— add exams, deadlines, or targets</span></div>
+      <div id="s-goals-list"></div>
+      <button class="btn ghost" style="margin-top:10px" id="s-add-goal">+ Add a goal</button>
+    </div>
+    <button class="btn wide" id="s-submit">Lock in →</button>
+  </div>
+
+  <!-- ── PHASE ── -->
+  <div id="v-phase" style="display:none">
+    <div class="back-bar">
+      <button class="icon-btn" id="phase-back" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 5 5 12 12 19"/></svg>
+      </button>
+      <span class="page-title" id="ph-title-bar"></span>
+    </div>
+    <div id="phase-content"></div>
+  </div>
+
+  <!-- ── DAY ── -->
+  <div id="v-day" style="display:none">
+    <div class="back-bar">
+      <button class="icon-btn" id="day-back" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><polyline points="12 5 5 12 12 19"/></svg>
+      </button>
+      <span class="page-title" id="day-title-bar"></span>
+    </div>
+    <div id="day-content"></div>
+  </div>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const APP_VERSION = '0.8';
+const PKEY = 'daily-planner:phases:v1';
+
+const CATS = {
+  study: { label: 'Study',       color: 'var(--c-study)', bg: 'var(--c-study-bg)' },
+  sport: { label: 'Sport',       color: 'var(--c-sport)', bg: 'var(--c-sport-bg)' },
+  house: { label: 'House',       color: 'var(--c-house)', bg: 'var(--c-house-bg)' },
+  appt:  { label: 'Appointment', color: 'var(--c-appt)',  bg: 'var(--c-appt-bg)'  },
+  other: { label: 'Other',       color: 'var(--c-other)', bg: 'var(--c-other-bg)' },
+};
+
+// Sequential palette — one color per goal, by index
+const GOAL_PALETTE = [
+  { color: '#3E6DB5', bg: '#E7EEF8' },
+  { color: '#4F8A3D', bg: '#E8F1E2' },
+  { color: '#C08A2B', bg: '#F6ECD6' },
+  { color: '#9B3A7A', bg: '#F5E4F0' },
+  { color: '#2A9090', bg: '#E0F3F3' },
+  { color: '#7B5EA7', bg: '#EDE8F5' },
+];
+
+let phases         = [];
+let currentPhaseId = null;
+let currentDayISO  = null;
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function isoFromDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function daysUntil(iso) {
+  return Math.round((new Date(iso+'T00:00:00') - new Date(todayISO()+'T00:00:00')) / 86400000);
+}
+function urgencyClass(days) {
+  if (days < 0)  return 'past';
+  if (days <= 3) return 'urgent';
+  if (days <= 7) return 'soon';
+  return 'ok';
+}
+function urgencyLabel(days) {
+  if (days < 0)   return 'Past';
+  if (days === 0) return 'Today!';
+  if (days === 1) return 'Tomorrow';
+  return `${days} days`;
+}
+function fmtShort(iso) {
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-GB', { day:'numeric', month:'short' });
+}
+function fmtMed(iso) {
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' });
+}
+function fmtLong(iso) {
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'long' });
+}
+function fmtDayFull(iso) {
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+}
+function fmtWeekday(iso) {
+  return new Date(iso+'T00:00:00').toLocaleDateString('en-GB', { weekday:'long' });
+}
+
+// ── PERSISTENCE ────────────────────────────────────────────────────────────
+
+function load() {
+  try { const r = localStorage.getItem(PKEY); phases = r ? JSON.parse(r) : []; }
+  catch(e) { phases = []; }
+  phases.forEach(p => { if (!p.tasks) p.tasks = []; if (!p.goals) p.goals = []; });
+}
+function save() { try { localStorage.setItem(PKEY, JSON.stringify(phases)); } catch(e) {} }
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ── ICONS ──────────────────────────────────────────────────────────────────
+
+function svgTrash() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+}
+function svgCheck() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+}
+
+// ── VIEWS ──────────────────────────────────────────────────────────────────
+
+function showView(name) {
+  ['home','setup','phase','day'].forEach(n => {
+    document.getElementById(`v-${n}`).style.display = n === name ? '' : 'none';
+  });
+  window.scrollTo(0, 0);
+  if (name === 'home')  renderHome();
+  if (name === 'setup') initSetup();
+  if (name === 'phase') renderPhase();
+  if (name === 'day')   renderDay();
+}
+
+// ── HOME ───────────────────────────────────────────────────────────────────
+
+function renderHome() {
+  const el = document.getElementById('phase-list');
+  if (phases.length === 0) {
+    el.innerHTML = `<div class="empty-state">
+      <div class="big">Nothing locked in yet</div>
+      <div class="sub">Create your first planning phase — give it a name, set the dates, and add your goals.</div>
+    </div>`;
+    return;
+  }
+  el.innerHTML = phases.map(p => {
+    const daysLeft = daysUntil(p.end);
+    const badgeStyle =
+      daysLeft < 0  ? 'background:var(--surface-2);color:var(--faint)' :
+      daysLeft <= 3 ? 'background:var(--urgent-bg);color:var(--urgent)' :
+      daysLeft <= 7 ? 'background:var(--soon-bg);color:var(--soon)' :
+                      'background:var(--ok-bg);color:var(--ok)';
+    const badgeText = daysLeft < 0 ? 'Ended' : daysLeft === 0 ? 'Last day!' : `${daysLeft}d left`;
+    const chips = (p.goals||[]).slice().sort((a,b) => a.date < b.date ? -1 : 1)
+      .map(g => { const d = daysUntil(g.date); return `<span class="goal-chip ${urgencyClass(d)}">${escapeHtml(g.title)} · ${urgencyLabel(d)}</span>`; }).join('');
+    return `<div class="phase-card" data-id="${p.id}">
+      <div class="pc-header">
+        <div><div class="pc-title">${escapeHtml(p.title)}</div><div class="pc-dates">${fmtShort(p.start)} → ${fmtShort(p.end)}</div></div>
+        <div class="pc-right">
+          <span class="pc-badge" style="${badgeStyle}">${badgeText}</span>
+          <button class="icon-btn" data-del="${p.id}" aria-label="Delete">${svgTrash()}</button>
+        </div>
+      </div>
+      ${chips ? `<div class="pc-goals">${chips}</div>` : ''}
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.phase-card').forEach(card => {
+    card.onclick = e => {
+      if (e.target.closest('[data-del]')) return;
+      currentPhaseId = card.dataset.id; showView('phase');
+    };
+  });
+  el.querySelectorAll('[data-del]').forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      const p = phases.find(x => x.id === btn.dataset.del);
+      if (!p || !confirm(`Delete "${p.title}"? This cannot be undone.`)) return;
+      phases = phases.filter(x => x.id !== p.id);
+      save(); renderHome(); toast('Phase deleted');
+    };
+  });
+}
+
+// ── SETUP ──────────────────────────────────────────────────────────────────
+
+let setupGoals = [];
+
+function initSetup() {
+  document.getElementById('s-title').value = '';
+  document.getElementById('s-start').value = todayISO();
+  document.getElementById('s-end').value   = '';
+  setupGoals = [];
+  addGoalRow();
+}
+
+function renderGoalRows() {
+  const el = document.getElementById('s-goals-list');
+  if (setupGoals.length === 0) { el.innerHTML = '<div class="no-items">No goals yet.</div>'; return; }
+  el.innerHTML = setupGoals.map((g, i) => `
+    <div class="goal-row" data-i="${i}">
+      <input class="gr-title" type="text"  placeholder="Goal name (e.g. Math exam)" value="${escapeHtml(g.title||'')}"/>
+      <input class="gr-date"  type="date"  value="${g.date||''}"/>
+      <select class="gr-cat">${Object.entries(CATS).map(([k,v]) => `<option value="${k}"${g.cat===k?' selected':''}>${v.label}</option>`).join('')}</select>
+      <button class="icon-btn" data-del-row="${i}">${svgTrash()}</button>
+    </div>`).join('');
+  el.querySelectorAll('.goal-row').forEach(row => {
+    const i = +row.dataset.i;
+    row.querySelector('.gr-title').oninput = e => { setupGoals[i].title = e.target.value; };
+    row.querySelector('.gr-date').onchange  = e => { setupGoals[i].date  = e.target.value; };
+    row.querySelector('.gr-cat').onchange   = e => { setupGoals[i].cat   = e.target.value; };
+  });
+  el.querySelectorAll('[data-del-row]').forEach(btn => {
+    btn.onclick = () => { setupGoals.splice(+btn.dataset.delRow, 1); renderGoalRows(); };
+  });
+}
+
+function addGoalRow() {
+  setupGoals.push({ title:'', date:'', cat:'study' });
+  renderGoalRows();
+  setTimeout(() => { const ins = document.querySelectorAll('.gr-title'); if (ins.length) ins[ins.length-1].focus(); }, 40);
+}
+
+function submitPhase() {
+  const title = document.getElementById('s-title').value.trim();
+  const start = document.getElementById('s-start').value;
+  const end   = document.getElementById('s-end').value;
+  if (!title) { document.getElementById('s-title').focus(); toast('Give this phase a name'); return; }
+  if (!end)   { document.getElementById('s-end').focus();   toast('Set an end date');        return; }
+  if (end < start) { toast('End date must be after start date'); return; }
+  const goals = setupGoals.filter(g => g.title.trim() && g.date)
+    .map(g => ({ id: uid(), title: g.title.trim(), date: g.date, cat: g.cat||'study' }));
+  phases.push({ id: uid(), title, start, end, goals, tasks: [] });
+  save(); currentPhaseId = phases[phases.length-1].id; toast('Locked in!'); showView('phase');
+}
+
+// ── DAY PLAN (auto-distributed, no storage needed) ─────────────────────────
+
+function computeDayPlan(phase) {
+  // Returns { 'YYYY-MM-DD': goalId | 'exam:goalId' }
+  const plan  = {};
+  const goals = (phase.goals||[]).slice().sort((a,b) => a.date < b.date ? -1 : 1);
+  if (!goals.length) return plan;
+
+  // Mark exam days
+  goals.forEach(g => { plan[g.date] = 'exam:' + g.id; });
+
+  // Collect non-exam days in phase
+  const studyDays = [];
+  const cur = new Date(phase.start + 'T00:00:00');
+  const end = new Date(phase.end   + 'T00:00:00');
+  while (cur <= end) {
+    const iso = isoFromDate(cur);
+    if (!plan[iso]) studyDays.push(iso);
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  // Round-robin, removing goals once their deadline has passed
+  let idx = 0;
+  const active = [...goals];
+  studyDays.forEach(day => {
+    while (active.length && day > active[0].date) {
+      active.shift();
+      if (active.length) idx = idx % active.length;
+    }
+    if (!active.length) return;
+    idx = idx % active.length;
+    plan[day] = active[idx].id;
+    idx = (idx + 1) % active.length;
+  });
+  return plan;
+}
+
+function buildGoalColorMap(phase) {
+  const map = {};
+  (phase.goals||[]).slice().sort((a,b) => a.date < b.date ? -1 : 1)
+    .forEach((g, i) => { map[g.id] = i; });
+  return map;
+}
+
+// ── USER-TASK SCHEDULER ────────────────────────────────────────────────────
+
+function rebuildAuto(phase) {
+  const today   = todayISO();
+  const dayPlan = computeDayPlan(phase);
+  const goalDates = {};
+  (phase.goals||[]).forEach(g => { goalDates[g.id] = g.date; });
+
+  // Release future planner-assigned dates
+  phase.tasks.forEach(t => {
+    if (!t.userPlaced && !t.done && t.date && t.date >= today) t.date = null;
+  });
+
+  const toPlace = phase.tasks.filter(t => t.date === null && !t.done);
+  if (!toPlace.length) return;
+
+  toPlace.sort((a, b) => {
+    const da = a.goalId ? (goalDates[a.goalId]||phase.end) : phase.end;
+    const db = b.goalId ? (goalDates[b.goalId]||phase.end) : phase.end;
+    return da < db ? -1 : 1;
+  });
+
+  const load = {};
+  phase.tasks.forEach(t => { if (t.date && !t.done) load[t.date] = (load[t.date]||0) + 1; });
+
+  toPlace.forEach(task => {
+    const deadline = task.goalId ? (goalDates[task.goalId]||phase.end) : phase.end;
+    const rs = today > phase.start ? today : phase.start;
+    const days = [];
+    const c = new Date(rs + 'T00:00:00'), s = new Date(deadline + 'T00:00:00');
+    while (c < s) { days.push(isoFromDate(c)); c.setDate(c.getDate()+1); }
+    if (!days.length) { task.date = deadline; load[deadline] = (load[deadline]||0)+1; return; }
+    // Prefer days already assigned to this goal in the day plan
+    const preferred = days.filter(d => dayPlan[d] === task.goalId);
+    const pool = preferred.length ? preferred : days;
+    let best = pool[0], bLoad = load[pool[0]]||0;
+    for (let i = 1; i < pool.length; i++) {
+      const l = load[pool[i]]||0;
+      if (l < bLoad) { bLoad = l; best = pool[i]; }
+    }
+    task.date = best; load[best] = (load[best]||0)+1;
+  });
+}
+
+// ── CALENDAR ───────────────────────────────────────────────────────────────
+
+function buildCalendar(phase, dayPlan, colorMap) {
+  const today = todayISO();
+  const taskMap = {};
+  (phase.tasks||[]).forEach(t => { if (t.date) (taskMap[t.date] = taskMap[t.date]||[]).push(t); });
+
+  const months = [];
+  let cur = new Date(new Date(phase.start+'T00:00:00').getFullYear(), new Date(phase.start+'T00:00:00').getMonth(), 1);
+  const endM = new Date(new Date(phase.end+'T00:00:00').getFullYear(), new Date(phase.end+'T00:00:00').getMonth(), 1);
+  while (cur <= endM) { months.push(new Date(cur)); cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1); }
+
+  return months.map(mDate => {
+    const yr = mDate.getFullYear(), mo = mDate.getMonth();
+    const dim = new Date(yr, mo+1, 0).getDate();
+    const label = mDate.toLocaleDateString('en-GB', { month:'long', year:'numeric' });
+    const firstDow = (new Date(yr, mo, 1).getDay() + 6) % 7;
+
+    let cells = '';
+    for (let i = 0; i < firstDow; i++) cells += '<div class="cal-cell empty"></div>';
+
+    for (let day = 1; day <= dim; day++) {
+      const iso  = `${yr}-${String(mo+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      const dow  = new Date(iso+'T00:00:00').getDay();
+      const inP  = iso >= phase.start && iso <= phase.end;
+      const isT  = iso === today;
+      const isP  = iso < today;
+      const isWE = dow === 0 || dow === 6;
+
+      const cls = ['cal-cell'];
+      if (!inP) { cls.push('out-phase'); }
+      else {
+        if (isP)  cls.push('is-past');
+        if (isWE) cls.push('is-weekend');
+      }
+
+      let inner = `<span class="cal-num">${day}</span>`;
+      let extraStyle = '';
+
+      const entry = inP ? dayPlan[iso] : null;
+      if (entry) {
+        const isExam = entry.startsWith('exam:');
+        const gid    = isExam ? entry.slice(5) : entry;
+        const ci     = colorMap[gid] ?? 0;
+        const col    = GOAL_PALETTE[ci % GOAL_PALETTE.length];
+
+        if (isExam) {
+          cls.push('is-exam');
+          const examRed = '#C0392B';
+          extraStyle = `background:${examRed};border-color:${examRed}`;
+          const examGoal = (phase.goals||[]).find(g => g.id === gid);
+          const examName = examGoal ? examGoal.title : 'Exam';
+          inner = `<span class="cal-num">${day}</span><span class="cal-exam-lbl">${escapeHtml(examName)}</span>`;
+        } else {
+          // Study day: colored bottom strip; today gets accent ring on the number (already via CSS)
+          if (isT) cls.push('is-today');
+          inner += `<span class="cal-strip" style="background:${col.color}"></span>`;
+        }
+      } else if (isT) {
+        cls.push('is-today');
+      }
+
+      // Task dot
+      const tasks = taskMap[iso]||[];
+      if (tasks.length && !entry?.startsWith('exam:')) {
+        inner += `<span class="cal-task-dot"></span>`;
+      }
+
+      cells += `<div class="${cls.join(' ')}"${extraStyle ? ` style="${extraStyle}"` : ''} data-date="${iso}">${inner}</div>`;
+    }
+
+    return `<div class="cal-month">
+      <div class="cal-month-label">${label}</div>
+      <div class="cal-week-row"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span></div>
+      <div class="cal-grid">${cells}</div>
+    </div>`;
+  }).join('');
+}
+
+function buildLegend(phase, colorMap) {
+  const sorted = (phase.goals||[]).slice().sort((a,b) => a.date < b.date ? -1 : 1);
+  if (!sorted.length) return '';
+  const items = sorted.map(g => {
+    const ci = colorMap[g.id] ?? 0;
+    const col = GOAL_PALETTE[ci % GOAL_PALETTE.length];
+    return `<span class="legend-item"><span class="legend-dot" style="background:${col.color}"></span>${escapeHtml(g.title)}</span>`;
+  }).join('');
+  return `<div class="goal-legend">${items}<span class="legend-hint">Filled cell = exam day · Strip color = study focus</span></div>`;
+}
+
+// ── GOAL PROGRESS BLOCKS ───────────────────────────────────────────────────
+
+function buildGoalBlocks(phase, dayPlan, colorMap) {
+  const sorted = (phase.goals||[]).slice().sort((a,b) => a.date < b.date ? -1 : 1);
+  if (!sorted.length) return '<div class="no-items">No goals yet — add one below.</div>';
+
+  const today = todayISO();
+  return sorted.map(g => {
+    const ci   = colorMap[g.id] ?? 0;
+    const col  = GOAL_PALETTE[ci % GOAL_PALETTE.length];
+    const days = daysUntil(g.date);
+    const cls  = urgencyClass(days);
+
+    // Day-plan progress: study days assigned to this goal
+    const assigned = Object.entries(dayPlan).filter(([d, v]) => v === g.id).map(([d]) => d);
+    const total    = assigned.length;
+    const done     = assigned.filter(d => d < today).length;
+    const pct      = total === 0 ? 0 : Math.round(done / total * 100);
+
+    // User tasks
+    const gTasks   = (phase.tasks||[]).filter(t => t.goalId === g.id);
+    const tDone    = gTasks.filter(t => t.done).length;
+
+    const taskRows = gTasks.length === 0 ? '' :
+      `<div class="task-list">${gTasks.map(t => `
+        <div class="task-item">
+          <button class="task-check ${t.done?'is-done':''}" data-toggle="${t.id}">${svgCheck()}</button>
+          <div class="task-body">
+            <div class="task-title ${t.done?'is-done':''}">${escapeHtml(t.title)}</div>
+            ${t.date ? `<div class="task-sched">${t.userPlaced?'📌':'🗓'} ${fmtMed(t.date)}</div>` : '<div class="task-sched">Unscheduled</div>'}
+          </div>
+          <button class="icon-btn" data-del-task="${t.id}">${svgTrash()}</button>
+        </div>`).join('')}</div>`;
+
+    const countLabel = total > 0
+      ? `${done}/${total} study days${gTasks.length ? ` · ${tDone}/${gTasks.length} tasks` : ''}`
+      : gTasks.length ? `${tDone}/${gTasks.length} tasks` : '';
+
+    return `<div class="goal-block" data-gid="${g.id}">
+      <div class="gb-header">
+        <div class="gb-left">
+          <div class="gb-name-row">
+            <span class="goal-color-dot" style="background:${col.color}"></span>
+            <span class="gb-title">${escapeHtml(g.title)}</span>
+          </div>
+          <div class="gb-sub">${fmtLong(g.date)}</div>
+        </div>
+        <div class="gb-right">
+          ${countLabel ? `<span class="gb-count">${countLabel}</span>` : ''}
+          <span class="countdown-badge ${cls}">${urgencyLabel(days)}</span>
+        </div>
+      </div>
+      <div class="gb-progress">
+        <div class="progress-track">
+          <div class="progress-fill" style="width:${pct}%;background:${col.color}"></div>
+        </div>
+      </div>
+      ${taskRows}
+    </div>`;
+  }).join('');
+}
+
+// ── PHASE VIEW ─────────────────────────────────────────────────────────────
+
+function renderPhase() {
+  const phase = phases.find(p => p.id === currentPhaseId);
+  if (!phase) { showView('home'); return; }
+
+  document.getElementById('ph-title-bar').textContent = phase.title;
+
+  const today    = todayISO();
+  const daysLeft = daysUntil(phase.end);
+  const total    = Math.max(1, Math.round((new Date(phase.end+'T00:00:00') - new Date(phase.start+'T00:00:00')) / 86400000));
+  const elapsed  = Math.max(0, Math.round((new Date(today+'T00:00:00') - new Date(phase.start+'T00:00:00')) / 86400000));
+  const pct      = Math.min(100, Math.round(elapsed / total * 100));
+
+  const dayPlan  = computeDayPlan(phase);
+  const colorMap = buildGoalColorMap(phase);
+  const upcoming = (phase.goals||[]).filter(g => daysUntil(g.date) >= 0).length;
+  const passed   = (phase.goals||[]).filter(g => daysUntil(g.date) <  0).length;
+
+  document.getElementById('phase-content').innerHTML = `
+    <div class="phase-hero">
+      <h2>${escapeHtml(phase.title)}</h2>
+      <div class="ph-dates">${fmtShort(phase.start)} → ${fmtShort(phase.end)}</div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:var(--accent)"></div></div>
+      <div class="progress-label">
+        <span>${pct}% through</span>
+        <span>${daysLeft < 0 ? 'Phase ended' : daysLeft === 0 ? 'Last day' : `${daysLeft} days left`}</span>
+      </div>
+    </div>
+
+    <div class="phase-grid">
+      <div>
+        <div class="stats-row">
+          <div class="stat"><div class="num">${upcoming}</div><div class="lbl">upcoming</div></div>
+          <div class="stat"><div class="num">${passed}</div><div class="lbl">passed</div></div>
+          <div class="stat"><div class="num">${daysLeft < 0 ? '—' : daysLeft}</div><div class="lbl">days left</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Calendar <span class="hint">— tap a day to open it</span></div>
+          ${buildCalendar(phase, dayPlan, colorMap)}
+          ${buildLegend(phase, colorMap)}
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <div class="panel-title">Main goals <button class="btn xs ghost ml" id="ag-toggle">+ Add a goal</button></div>
+          ${buildGoalBlocks(phase, dayPlan, colorMap)}
+          <div id="ag-form" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+            <div class="add-goal-row" style="margin-top:0;padding-top:0;border-top:none">
+              <input type="text" id="ag-title" placeholder="Goal name…"/>
+              <input type="date" id="ag-date"/>
+              <select id="ag-cat">${Object.entries(CATS).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join('')}</select>
+              <button class="btn sm" id="ag-add">Add</button>
+              <button class="btn sm ghost" id="ag-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Calendar day clicks
+  document.getElementById('phase-content').querySelectorAll('.cal-cell[data-date]:not(.out-phase):not(.empty)').forEach(cell => {
+    cell.onclick = () => { currentDayISO = cell.dataset.date; showView('day'); };
+  });
+
+  // Task toggle
+  document.getElementById('phase-content').querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.onclick = () => {
+      const t = phase.tasks.find(x => x.id === btn.dataset.toggle);
+      if (t) { t.done = !t.done; rebuildAuto(phase); save(); renderPhase(); }
+    };
+  });
+
+  // Task delete
+  document.getElementById('phase-content').querySelectorAll('[data-del-task]').forEach(btn => {
+    btn.onclick = () => {
+      phase.tasks = phase.tasks.filter(x => x.id !== btn.dataset.delTask);
+      rebuildAuto(phase); save(); renderPhase(); toast('Task removed');
+    };
+  });
+
+  // Goal add — toggle form visibility
+  const agForm   = document.getElementById('ag-form');
+  const agToggle = document.getElementById('ag-toggle');
+  agToggle.onclick = () => {
+    const open = agForm.style.display === 'none';
+    agForm.style.display = open ? '' : 'none';
+    agToggle.textContent = open ? '✕ Cancel' : '+ Add a goal';
+    if (open) document.getElementById('ag-title').focus();
+  };
+  document.getElementById('ag-cancel').onclick = () => {
+    agForm.style.display = 'none';
+    agToggle.textContent = '+ Add a goal';
+  };
+  document.getElementById('ag-add').onclick = addGoalToPhase;
+  document.getElementById('ag-title').addEventListener('keydown', e => { if (e.key === 'Enter') addGoalToPhase(); });
+}
+
+function addGoalToPhase() {
+  const phase = phases.find(p => p.id === currentPhaseId);
+  if (!phase) return;
+  const title = document.getElementById('ag-title').value.trim();
+  const date  = document.getElementById('ag-date').value;
+  if (!title) { document.getElementById('ag-title').focus(); return; }
+  if (!date)  { document.getElementById('ag-date').focus(); toast('Set a date for this goal'); return; }
+  phase.goals.push({ id: uid(), title, date, cat: document.getElementById('ag-cat').value });
+  save(); renderPhase(); toast('Goal added');  // form resets on re-render
+}
+
+// ── DAY VIEW ───────────────────────────────────────────────────────────────
+
+function renderDay() {
+  const phase = phases.find(p => p.id === currentPhaseId);
+  if (!phase || !currentDayISO) { showView('phase'); return; }
+
+  const iso      = currentDayISO;
+  const daysAway = daysUntil(iso);
+  const weekday  = fmtWeekday(iso);
+
+  document.getElementById('day-title-bar').textContent = weekday;
+
+  // Day plan info
+  const dayPlan  = computeDayPlan(phase);
+  const colorMap = buildGoalColorMap(phase);
+  const entry    = dayPlan[iso];
+  let studyTagHTML = '';
+  if (entry) {
+    const isExam = entry.startsWith('exam:');
+    const gid    = isExam ? entry.slice(5) : entry;
+    const goal   = (phase.goals||[]).find(g => g.id === gid);
+    if (goal) {
+      const ci  = colorMap[gid] ?? 0;
+      const col = GOAL_PALETTE[ci % GOAL_PALETTE.length];
+      const label = isExam ? `Exam day: ${goal.title}` : `Study focus: ${goal.title}`;
+      studyTagHTML = `<div class="day-goal-tag" style="background:${col.bg};color:${col.color}">
+        <span class="day-goal-dot" style="background:${col.color}"></span>${escapeHtml(label)}
+      </div>`;
+    }
+  }
+
+  const badge =
+    iso === todayISO()
+      ? `<span class="day-badge" style="background:var(--accent);color:#fff">Today</span>`
+      : daysAway > 0
+        ? `<span class="day-badge" style="background:var(--ok-bg);color:var(--ok)">${daysAway} day${daysAway>1?'s':''} from now</span>`
+        : `<span class="day-badge" style="background:var(--surface-2);color:var(--faint)">${Math.abs(daysAway)} day${Math.abs(daysAway)>1?'s':''} ago</span>`;
+
+  // Deadlines on this day
+  const goalsToday = (phase.goals||[]).filter(g => g.date === iso);
+  const deadlineHTML = goalsToday.length === 0 ? '' : `
+    <div class="panel">
+      <div class="panel-title">Deadlines today</div>
+      ${goalsToday.map(g => {
+        const days = daysUntil(g.date);
+        const ci   = colorMap[g.id] ?? 0;
+        const col  = GOAL_PALETTE[ci % GOAL_PALETTE.length];
+        return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)">
+          <span class="goal-color-dot" style="background:${col.color};width:13px;height:13px"></span>
+          <strong style="flex:1;font-size:15px">${escapeHtml(g.title)}</strong>
+          <span class="countdown-badge ${urgencyClass(days)}">${urgencyLabel(days)}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  // Tasks
+  const dayTasks = (phase.tasks||[]).filter(t => t.date === iso);
+  const taskRows = dayTasks.length === 0
+    ? `<div class="no-items">No tasks for this day yet.</div>`
+    : `<div class="task-list">${dayTasks.map(t => {
+        const linked = t.goalId ? (phase.goals||[]).find(g => g.id === t.goalId) : null;
+        const ci     = linked ? (colorMap[linked.id]??0) : -1;
+        const col    = ci >= 0 ? GOAL_PALETTE[ci % GOAL_PALETTE.length] : null;
+        return `<div class="task-item">
+          <button class="task-check ${t.done?'is-done':''}" data-toggle="${t.id}">${svgCheck()}</button>
+          <div class="task-body">
+            <div class="task-title ${t.done?'is-done':''}">${escapeHtml(t.title)}</div>
+            ${linked && col ? `<div class="task-sched"><span style="color:${col.color};font-size:12px;font-weight:600">${escapeHtml(linked.title)}</span></div>` : ''}
+          </div>
+          <button class="icon-btn" data-del-task="${t.id}">${svgTrash()}</button>
+        </div>`;
+      }).join('')}</div>`;
+
+  const goalOptions = `<option value="">No specific goal</option>${(phase.goals||[]).map(g => `<option value="${g.id}">${escapeHtml(g.title)}</option>`).join('')}`;
+
+  document.getElementById('day-content').innerHTML = `
+    <div class="day-hero">
+      <div class="day-name">${weekday}</div>
+      <div class="day-date-full">${fmtDayFull(iso)}</div>
+      ${badge}
+      ${studyTagHTML}
+    </div>
+    ${deadlineHTML}
+    <div class="panel">
+      <div class="panel-title">Tasks</div>
+      ${taskRows}
+      <div class="add-task-row" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+        <input type="text" id="dt-title" placeholder="Add a task for this day…"/>
+        <select id="dt-goal">${goalOptions}</select>
+        <button class="btn sm" id="dt-add">Add</button>
+      </div>
+    </div>
+  `;
+
+  const doAdd = () => {
+    const title  = document.getElementById('dt-title').value.trim();
+    const goalId = document.getElementById('dt-goal').value || null;
+    if (!title) { document.getElementById('dt-title').focus(); return; }
+    phase.tasks.push({ id: uid(), title, goalId, date: iso, done: false, userPlaced: true });
+    save(); renderDay(); toast('Task added');
+  };
+  document.getElementById('dt-add').onclick = doAdd;
+  document.getElementById('dt-title').addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
+
+  document.getElementById('day-content').querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.onclick = () => {
+      const t = phase.tasks.find(x => x.id === btn.dataset.toggle);
+      if (t) { t.done = !t.done; save(); renderDay(); }
+    };
+  });
+  document.getElementById('day-content').querySelectorAll('[data-del-task]').forEach(btn => {
+    btn.onclick = () => {
+      phase.tasks = phase.tasks.filter(x => x.id !== btn.dataset.delTask);
+      rebuildAuto(phase); save(); renderDay(); toast('Task removed');
+    };
+  });
+}
+
+// ── EVENTS ─────────────────────────────────────────────────────────────────
+
+document.getElementById('btn-new-phase').onclick = () => showView('setup');
+document.getElementById('setup-back').onclick    = () => showView('home');
+document.getElementById('phase-back').onclick    = () => showView('home');
+document.getElementById('day-back').onclick      = () => showView('phase');
+document.getElementById('s-add-goal').onclick    = addGoalRow;
+document.getElementById('s-submit').onclick      = submitPhase;
+document.getElementById('s-title').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('s-end').focus(); });
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+
+(function init() {
+  const h = new Date().getHours();
+  document.getElementById('greeting').textContent = h < 12 ? 'Good morning.' : h < 18 ? 'Good afternoon.' : 'Good evening.';
+  load(); showView('home');
+})();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
+}
+</script>
+</body>
+</html>

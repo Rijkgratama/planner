@@ -4,46 +4,48 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lock In Planner</title>
-<meta name="theme-color" content="#B5512F">
+<meta name="theme-color" content="#4F46E5">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Planner">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23B5512F'/><text x='50' y='70' font-size='60' text-anchor='middle' fill='white' font-family='Georgia,serif'>P</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%234F46E5'/><text x='50' y='70' font-size='58' font-weight='bold' text-anchor='middle' fill='white' font-family='system-ui,sans-serif'>P</text></svg>">
 <style>
   :root {
-    --paper: #F6F2EA; --surface: #FFFFFF; --surface-2: #FCFAF5;
-    --ink: #2A2620; --muted: #8C8475; --faint: #B8B0A1; --line: #E7E1D5;
-    --accent: #B5512F; --accent-soft: #F3E3DB;
-    --c-study: #3E6DB5; --c-study-bg: #E7EEF8;
-    --c-sport: #4F8A3D; --c-sport-bg: #E8F1E2;
-    --c-house: #C08A2B; --c-house-bg: #F6ECD6;
-    --c-appt:  #B5512F; --c-appt-bg:  #F4E2DA;
-    --c-other: #8C8475; --c-other-bg: #ECE7DD;
-    --urgent: #C0392B; --urgent-bg: #FDECEA;
-    --soon: #C08A2B; --soon-bg: #FEF3DC;
-    --ok: #4F8A3D; --ok-bg: #E8F1E2;
-    --radius: 14px; --radius-sm: 9px;
+    --paper: #F7F8FA; --surface: #FFFFFF; --surface-2: #F3F5F8;
+    --ink: #1E2430; --muted: #6B7280; --faint: #9AA2AE; --line: #E5E8EC;
+    --accent: #4F46E5; --accent-hover: #4338CA; --accent-soft: #E6E7FB;
+    --c-study: #2563EB; --c-study-bg: #E8EEFD;
+    --c-sport: #059669; --c-sport-bg: #E1F3EC;
+    --c-house: #D97706; --c-house-bg: #FAEEDC;
+    --c-appt:  #4F46E5; --c-appt-bg:  #EAEAFC;
+    --c-other: #64748B; --c-other-bg: #EEF1F5;
+    --urgent: #DC2626; --urgent-bg: #FCEBEB;
+    --soon: #D97706; --soon-bg: #FBEEDC;
+    --ok: #059669; --ok-bg: #E1F3EC;
+    --radius: 16px; --radius-sm: 10px;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+    --shadow-md: 0 6px 20px rgba(16,24,40,.10);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: var(--paper); min-height: 100vh; }
-  body { font-family: 'Hanken Grotesk', sans-serif; color: var(--ink); line-height: 1.5; -webkit-font-smoothing: antialiased; padding: 28px 40px 60px; }
+  body { font-family: 'Inter', sans-serif; color: var(--ink); line-height: 1.5; -webkit-font-smoothing: antialiased; padding: 28px 40px 60px; }
   .app { max-width: 1120px; margin: 0 auto; }
   @media (max-width: 780px) {
     body { padding: 20px 16px 50px; }
   }
 
   .kicker { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
-  h1 { font-family: 'Fraunces', serif; font-weight: 500; font-size: 38px; line-height: 1.05; letter-spacing: -0.01em; margin: 4px 0 6px; }
+  h1 { font-family: 'Inter', system-ui, sans-serif; font-weight: 700; font-size: 34px; line-height: 1.08; letter-spacing: -0.025em; margin: 4px 0 6px; }
   .subtitle { color: var(--muted); font-size: 15px; }
   header { margin-bottom: 24px; }
 
-  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
-  .panel-title { font-family: 'Fraunces', serif; font-size: 17px; font-weight: 500; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .panel-title .hint { font-family: 'Hanken Grotesk'; font-size: 12px; color: var(--faint); font-weight: 400; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
+  .panel-title { font-family: 'Inter', system-ui, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .panel-title .hint { font-family: 'Inter'; font-size: 12px; color: var(--faint); font-weight: 400; }
   .panel-title .ml { margin-left: auto; }
 
   input[type=text], input[type=date], select {
@@ -53,8 +55,8 @@
   }
   input[type=text]:focus, input[type=date]:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
-  .btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 11px 20px; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; transition: filter .15s, transform .05s; white-space: nowrap; }
-  .btn:hover { filter: brightness(1.06); }
+  .btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 11px 20px; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; transition: background .15s, transform .05s, box-shadow .15s; white-space: nowrap; box-shadow: 0 1px 2px rgba(16,24,40,.10); }
+  .btn:hover { background: var(--accent-hover); filter: none; }
   .btn:active { transform: scale(0.98); }
   .btn.ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
   .btn.ghost:hover { background: var(--surface-2); filter: none; border-color: var(--faint); }
@@ -67,13 +69,13 @@
   .icon-btn svg { width: 16px; height: 16px; }
 
   .back-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
-  .back-bar .page-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 500; }
+  .back-bar .page-title { font-family: 'Inter', system-ui, sans-serif; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; }
 
   /* ── HOME ── */
-  .phase-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 12px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
-  .phase-card:hover { border-color: #D0C8B8; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .phase-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 12px; cursor: pointer; box-shadow: var(--shadow); transition: border-color .15s, box-shadow .2s, transform .1s; }
+  .phase-card:hover { border-color: #CBD2DA; box-shadow: var(--shadow-md); transform: translateY(-1px); }
   .pc-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-  .pc-title { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 500; }
+  .pc-title { font-family: 'Inter', system-ui, sans-serif; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; }
   .pc-dates { font-size: 13px; color: var(--muted); margin-top: 2px; }
   .pc-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .pc-badge { font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 100px; white-space: nowrap; }
@@ -104,22 +106,22 @@
   .freq-ctrl .freq-sep, .freq-ctrl .freq-unit { font-size: 13px; color: var(--muted); white-space: nowrap; }
 
   /* ── PHASE HERO ── */
-  .phase-hero { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 14px; }
-  .phase-hero h2 { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 500; margin-bottom: 4px; }
+  .phase-hero { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; margin-bottom: 14px; box-shadow: var(--shadow); }
+  .phase-hero h2 { font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
   .ph-dates { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
   .progress-track { height: 6px; background: var(--line); border-radius: 100px; overflow: hidden; margin-bottom: 6px; }
   .progress-fill { height: 100%; border-radius: 100px; transition: width .4s; }
   .progress-label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
 
   .stats-row { display: flex; gap: 10px; margin-bottom: 14px; }
-  .stat { flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
-  .stat .num { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 500; line-height: 1; }
+  .stat { flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+  .stat .num { font-family: 'Inter', system-ui, sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; line-height: 1; }
   .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
   /* ── CALENDAR ── */
   .cal-month { margin-bottom: 22px; }
   .cal-month:last-child { margin-bottom: 0; }
-  .cal-month-label { font-family: 'Fraunces', serif; font-size: 16px; font-weight: 500; margin-bottom: 8px; }
+  .cal-month-label { font-family: 'Inter', system-ui, sans-serif; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 8px; }
   .cal-week-row, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
   .cal-week-row { margin-bottom: 3px; }
   .cal-week-row span { text-align: center; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 2px 0; }
@@ -220,7 +222,7 @@
 
   /* ── DAY VIEW ── */
   .day-hero { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 14px; }
-  .day-name { font-family: 'Fraunces', serif; font-size: 30px; font-weight: 500; margin-bottom: 2px; }
+  .day-name { font-family: 'Inter', system-ui, sans-serif; font-size: 30px; font-weight: 500; margin-bottom: 2px; }
   .day-date-full { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
   .day-badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 100px; }
   .day-goal-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 100px; margin-top: 10px; }
@@ -228,7 +230,7 @@
 
   /* ── MISC ── */
   .empty-state { text-align: center; padding: 52px 20px; color: var(--muted); }
-  .empty-state .big { font-family: 'Fraunces', serif; font-size: 22px; color: var(--ink); margin-bottom: 8px; }
+  .empty-state .big { font-family: 'Inter', system-ui, sans-serif; font-size: 22px; color: var(--ink); margin-bottom: 8px; }
   .empty-state .sub { margin-bottom: 24px; font-size: 15px; }
   .no-items { font-size: 13px; color: var(--faint); padding: 4px 0; }
 
@@ -243,7 +245,7 @@
   @media (min-width: 600px) { .modal { border-radius: 18px; } }
   @keyframes modalIn { from { transform: translateY(24px); opacity: .5; } to { transform: none; opacity: 1; } }
   .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); z-index: 1; }
-  .modal-title { font-family: 'Fraunces', serif; font-size: 19px; font-weight: 500; text-transform: capitalize; }
+  .modal-title { font-family: 'Inter', system-ui, sans-serif; font-size: 19px; font-weight: 500; text-transform: capitalize; }
   .modal-body { padding: 16px 18px 22px; }
 
   .type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -385,7 +387,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.11';
+const APP_VERSION = '0.12';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {

@@ -277,6 +277,15 @@
   .cap-input::-webkit-inner-spin-button, .cap-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .cap-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
+  /* Effort slider */
+  .effort-ctrl { display: flex; align-items: center; gap: 14px; }
+  .effort-readout { min-width: 64px; text-align: right; font-weight: 600; font-size: 14px; color: var(--accent); white-space: nowrap; }
+  input[type=range] { -webkit-appearance: none; appearance: none; flex: 1; height: 6px; border-radius: 100px; background: var(--line); outline: none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--line); transition: transform .05s; }
+  input[type=range]::-webkit-slider-thumb:active { transform: scale(1.12); }
+  input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--line); }
+  input[type=range]:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+
   /* Day load meter */
   .load-meter { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
   .load-bar { flex: 1; height: 8px; border-radius: 100px; background: var(--line); overflow: hidden; }
@@ -376,7 +385,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.10';
+const APP_VERSION = '0.11';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -386,6 +395,24 @@ const CATS = {
   appt:  { label: 'Appointment', color: 'var(--c-appt)',  bg: 'var(--c-appt-bg)'  },
   other: { label: 'Other',       color: 'var(--c-other)', bg: 'var(--c-other-bg)' },
 };
+
+// Effort = estimated minutes a task/routine session takes (stored as a number).
+// Legacy string tiers from an earlier version still map cleanly to minutes.
+const APPT_MINUTES = 45;            // an appointment's assumed slice of the day
+const EFFORT_MIN = 5, EFFORT_MAX = 240, EFFORT_STEP = 5, EFFORT_DEFAULT = 45;
+function effortMinutes(e) {
+  if (typeof e === 'number' && e > 0) return e;
+  if (e === 'quick') return 15;
+  if (e === 'deep')  return 120;
+  return EFFORT_DEFAULT;            // 'normal' or unset
+}
+function fmtDur(min) {
+  min = Math.round(min);
+  if (min <= 0) return '0 min';
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
 
 // Sequential palette — one color per goal, by index
 const GOAL_PALETTE = [
@@ -456,7 +483,19 @@ function load() {
     if (!p.routines) p.routines = [];
     if (!p.routineLog) p.routineLog = {};
     if (!p.appointments) p.appointments = [];
-    if (!p.capacity) p.capacity = defaultCapacity();
+    if (!p.capacityMin) {
+      // Migrate the older per-weekday item-counts (~45 min each) to minutes.
+      if (p.capacity && typeof p.capacity === 'object') {
+        p.capacityMin = {};
+        for (let d = 0; d < 7; d++) {
+          const c = p.capacity[d];
+          p.capacityMin[d] = (typeof c === 'number' ? c : (d === 0 || d === 6 ? 2 : 4)) * 45;
+        }
+      } else {
+        p.capacityMin = defaultCapacity();
+      }
+      delete p.capacity;
+    }
   });
 }
 function save() { try { localStorage.setItem(PKEY, JSON.stringify(phases)); } catch(e) {} }
@@ -465,24 +504,27 @@ function save() { try { localStorage.setItem(PKEY, JSON.stringify(phases)); } ca
 // How many "things" (tasks + appointments + routine sessions) feel doable on a
 // given weekday. Keyed by JS Date.getDay(): 0=Sun .. 6=Sat. Until tasks carry an
 // effort/time estimate, load is counted as items; capacity is the ceiling.
-function defaultCapacity() {
-  return { 0: 2, 1: 4, 2: 4, 3: 4, 4: 4, 5: 4, 6: 2 };
+function defaultCapacity() {        // minutes per weekday, keyed by getDay() (Sun..Sat)
+  return { 0: 90, 1: 180, 2: 180, 3: 180, 4: 180, 5: 180, 6: 90 };
 }
-function dayCapacity(phase, iso) {
-  const cap = phase.capacity || defaultCapacity();
+function dayCapacity(phase, iso) {  // minutes
+  const cap = phase.capacityMin || defaultCapacity();
   const v = cap[new Date(iso + 'T00:00:00').getDay()];
-  return (typeof v === 'number' && v >= 0) ? v : 4;
+  return (typeof v === 'number' && v >= 0) ? v : 180;
 }
-// Count of not-yet-done work planned on a day (skipped routine sessions don't count).
-function dayLoadCount(phase, iso, routinePlan) {
-  let n = 0;
-  (phase.tasks || []).forEach(t => { if (t.date === iso && !t.done) n++; });
-  (phase.appointments || []).forEach(a => { if (a.date === iso && !a.done) n++; });
+// Load (in minutes) of not-yet-done work planned on a day, summed by effort.
+// (Skipped routine sessions don't count; appointments take a fixed slice.)
+function dayLoad(phase, iso, routinePlan) {
+  let w = 0;
+  (phase.tasks || []).forEach(t => { if (t.date === iso && !t.done) w += effortMinutes(t.effort); });
+  (phase.appointments || []).forEach(a => { if (a.date === iso && !a.done) w += APPT_MINUTES; });
   const log = phase.routineLog || {};
   ((routinePlan && routinePlan[iso]) || []).forEach(rid => {
-    if (log[`${rid}|${iso}`] !== 'skip') n++;
+    if (log[`${rid}|${iso}`] === 'skip') return;
+    const r = (phase.routines || []).find(x => x.id === rid);
+    w += effortMinutes(r && r.effort);
   });
-  return n;
+  return w;
 }
 
 function toast(msg) {
@@ -625,7 +667,7 @@ function submitPhase() {
   if (end < start) { toast('End date must be after start date'); return; }
   const goals = setupGoals.filter(g => g.title.trim() && g.date)
     .map(g => ({ id: uid(), title: g.title.trim(), date: g.date, cat: g.cat||'study' }));
-  phases.push({ id: uid(), title, start, end, goals, tasks: [], routines: [], routineLog: {}, appointments: [], capacity: defaultCapacity() });
+  phases.push({ id: uid(), title, start, end, goals, tasks: [], routines: [], routineLog: {}, appointments: [], capacityMin: defaultCapacity() });
   save(); currentPhaseId = phases[phases.length-1].id; toast('Locked in!'); showView('phase');
 }
 
@@ -701,14 +743,19 @@ function computeRoutinePlan(phase) {
   const examDay = {};
   (phase.goals || []).forEach(g => { examDay[g.date] = true; });
 
-  // Daily load from appointments + one-off tasks; routine sessions add to it as we place them.
+  // Daily load (weighted by effort) from appointments + one-off tasks; routine
+  // sessions add to it as we place them.
   const load = {};
-  (phase.appointments || []).forEach(a => { if (a.date) load[a.date] = (load[a.date] || 0) + 1; });
-  (phase.tasks || []).forEach(t => { if (t.date && !t.done) load[t.date] = (load[t.date] || 0) + 1; });
+  (phase.appointments || []).forEach(a => { if (a.date) load[a.date] = (load[a.date] || 0) + APPT_MINUTES; });
+  (phase.tasks || []).forEach(t => { if (t.date && !t.done) load[t.date] = (load[t.date] || 0) + effortMinutes(t.effort); });
 
   const add = (date, rid) => {
     const arr = (plan[date] = plan[date] || []);
-    if (!arr.includes(rid)) { arr.push(rid); load[date] = (load[date] || 0) + 1; }
+    if (!arr.includes(rid)) {
+      arr.push(rid);
+      const r = routines.find(x => x.id === rid);
+      load[date] = (load[date] || 0) + effortMinutes(r && r.effort);
+    }
   };
 
   // 1) Pin every logged session (done or skipped) to its date so it always renders there.
@@ -805,8 +852,8 @@ function rebuildAuto(phase) {
   });
 
   const load = {};
-  (phase.appointments||[]).forEach(a => { if (a.date) load[a.date] = (load[a.date]||0) + 1; });
-  phase.tasks.forEach(t => { if (t.date && !t.done) load[t.date] = (load[t.date]||0) + 1; });
+  (phase.appointments||[]).forEach(a => { if (a.date) load[a.date] = (load[a.date]||0) + APPT_MINUTES; });
+  phase.tasks.forEach(t => { if (t.date && !t.done) load[t.date] = (load[t.date]||0) + effortMinutes(t.effort); });
 
   toPlace.forEach(task => {
     const deadline = task.goalId ? (goalDates[task.goalId]||phase.end) : phase.end;
@@ -814,7 +861,7 @@ function rebuildAuto(phase) {
     const days = [];
     const c = new Date(rs + 'T00:00:00'), s = new Date(deadline + 'T00:00:00');
     while (c < s) { days.push(isoFromDate(c)); c.setDate(c.getDate()+1); }
-    if (!days.length) { task.date = deadline; load[deadline] = (load[deadline]||0)+1; return; }
+    if (!days.length) { task.date = deadline; load[deadline] = (load[deadline]||0)+effortMinutes(task.effort); return; }
     // Prefer days already assigned to this goal in the day plan
     const preferred = days.filter(d => dayPlan[d] === task.goalId);
     const pool = preferred.length ? preferred : days;
@@ -825,7 +872,7 @@ function rebuildAuto(phase) {
       const score = (l >= dayCapacity(phase, d) ? 1000 : 0) + l;
       if (score < bScore) { bScore = score; best = d; }
     }
-    task.date = best; load[best] = (load[best]||0)+1;
+    task.date = best; load[best] = (load[best]||0)+effortMinutes(task.effort);
   });
 }
 
@@ -915,7 +962,7 @@ function buildCalendar(phase, dayPlan, colorMap, routinePlan) {
         if (dots.length) inner += `<span class="cal-dots">${dots.slice(0, 5).join('')}</span>`;
 
         // Gentle marker when a day is carrying more than its capacity.
-        if (inP && !isP && dayLoadCount(phase, iso, routinePlan) > dayCapacity(phase, iso)) cls.push('is-over');
+        if (inP && !isP && dayLoad(phase, iso, routinePlan) > dayCapacity(phase, iso)) cls.push('is-over');
       }
 
       cells += `<div class="${cls.join(' ')}"${extraStyle ? ` style="${extraStyle}"` : ''} data-date="${iso}">${inner}</div>`;
@@ -1108,6 +1155,11 @@ function openEditor(type, item, presetDate) {
     mn.onchange = () => { if (+mx.value < +mn.value) mx.value = mn.value; };
     mx.onchange = () => { if (+mn.value > +mx.value) mn.value = mx.value; };
   }
+  const eff = document.getElementById('ed-effort');
+  if (eff) {
+    const out = document.getElementById('ed-effort-out');
+    eff.addEventListener('input', () => { out.textContent = fmtDur(+eff.value); });
+  }
   const title = document.getElementById('ed-title');
   title.addEventListener('keydown', e => { if (e.key === 'Enter') saveEditor(type, item); });
   openModal();
@@ -1119,6 +1171,16 @@ function fldTitle(item, ph) {
 }
 function fldCat(sel) {
   return `<div class="field"><label>Category</label><select id="ed-cat">${catOptions(sel)}</select></div>`;
+}
+function fldEffort(sel) {
+  const val = effortMinutes(sel);
+  return `<div class="field">
+    <label>Effort <span style="text-transform:none;font-weight:400">— drag to set how long it takes</span></label>
+    <div class="effort-ctrl">
+      <input type="range" id="ed-effort" min="${EFFORT_MIN}" max="${EFFORT_MAX}" step="${EFFORT_STEP}" value="${val}">
+      <span class="effort-readout" id="ed-effort-out">${fmtDur(val)}</span>
+    </div>
+  </div>`;
 }
 
 function renderForm(type, item, presetDate) {
@@ -1141,6 +1203,7 @@ function renderForm(type, item, presetDate) {
           <span class="freq-unit">× / week</span>
         </div>
       </div>
+      ${fldEffort(r.effort)}
       ${fldCat(r.cat)}`;
 
   } else if (type === 'appointment') {
@@ -1157,6 +1220,7 @@ function renderForm(type, item, presetDate) {
     const dval = item ? (item.userPlaced && item.date ? item.date : '') : (presetDate || '');
     fields = `${fldTitle(item, 'Task (e.g. Buy groceries)')}
       <div class="field"><label>Linked goal (optional)</label><select id="ed-goal">${goalOpts}</select></div>
+      ${fldEffort(item ? item.effort : 'normal')}
       <div class="field"><label>Day <span style="text-transform:none;font-weight:400">— leave empty to auto-plan</span></label><input type="date" id="ed-date" value="${dval}"></div>`;
   }
 
@@ -1187,8 +1251,9 @@ function saveEditor(type, item) {
     const min = +document.getElementById('ed-min').value || 1;
     const max = Math.max(min, +document.getElementById('ed-max').value || min);
     const cat = document.getElementById('ed-cat').value;
-    if (item) Object.assign(item, { title, cat, perWeekMin: min, perWeekMax: max });
-    else phase.routines.push({ id: uid(), title, cat, perWeekMin: min, perWeekMax: max });
+    const effort = +document.getElementById('ed-effort').value || EFFORT_DEFAULT;
+    if (item) Object.assign(item, { title, cat, perWeekMin: min, perWeekMax: max, effort });
+    else phase.routines.push({ id: uid(), title, cat, perWeekMin: min, perWeekMax: max, effort });
 
   } else if (type === 'appointment') {
     const date = document.getElementById('ed-date').value;
@@ -1202,11 +1267,12 @@ function saveEditor(type, item) {
   } else if (type === 'task') {
     const goalId = document.getElementById('ed-goal').value || null;
     const date   = document.getElementById('ed-date').value || null;
+    const effort = +document.getElementById('ed-effort').value || EFFORT_DEFAULT;
     if (item) {
-      item.title = title; item.goalId = goalId;
+      item.title = title; item.goalId = goalId; item.effort = effort;
       item.date = date; item.userPlaced = !!date;
     } else {
-      phase.tasks.push({ id: uid(), title, goalId, date: date || null, done: false, userPlaced: !!date });
+      phase.tasks.push({ id: uid(), title, goalId, effort, date: date || null, done: false, userPlaced: !!date });
     }
     rebuildAuto(phase);
   }
@@ -1239,16 +1305,18 @@ function deleteItem(type, item) {
 // ── CAPACITY EDITOR ────────────────────────────────────────────────────────
 
 function buildCapacityEditor(phase) {
-  const cap = phase.capacity || defaultCapacity();
+  const cap = phase.capacityMin || defaultCapacity();
   const order = [1, 2, 3, 4, 5, 6, 0];                 // Mon → Sun
   const labels = { 1:'Mo', 2:'Tu', 3:'We', 4:'Th', 5:'Fr', 6:'Sa', 0:'Su' };
-  const cells = order.map(d => `
-    <label class="cap-cell">
+  const cells = order.map(d => {
+    const hrs = Math.round((cap[d] ?? 0) / 60 * 2) / 2;   // nearest half-hour
+    return `<label class="cap-cell">
       <span class="cap-dow">${labels[d]}</span>
-      <input type="number" min="0" max="12" inputmode="numeric" class="cap-input" data-cap-dow="${d}" value="${cap[d] ?? ''}">
-    </label>`).join('');
+      <input type="number" min="0" max="16" step="0.5" inputmode="decimal" class="cap-input" data-cap-dow="${d}" value="${hrs}">
+    </label>`;
+  }).join('');
   return `<div class="cap-grid">${cells}</div>
-    <div class="hint" style="margin-top:10px">How many things feel doable each day. The planner keeps days under this when it can.</div>`;
+    <div class="hint" style="margin-top:10px">Hours that feel doable each day. The planner keeps days under this when it can.</div>`;
 }
 
 // ── PHASE VIEW ─────────────────────────────────────────────────────────────
@@ -1309,7 +1377,7 @@ function renderPhase() {
           ${buildAppointmentBlocks(phase)}
         </div>
         <div class="panel">
-          <div class="panel-title">Daily capacity <span class="hint ml">things per day</span></div>
+          <div class="panel-title">Daily capacity <span class="hint ml">hours per day</span></div>
           ${buildCapacityEditor(phase)}
         </div>
       </div>
@@ -1324,11 +1392,11 @@ function renderPhase() {
   // Daily capacity inputs
   document.getElementById('phase-content').querySelectorAll('[data-cap-dow]').forEach(inp => {
     inp.onchange = () => {
-      let v = parseInt(inp.value, 10);
-      if (isNaN(v) || v < 0) v = 0;
-      if (v > 12) v = 12;
-      phase.capacity = phase.capacity || defaultCapacity();
-      phase.capacity[+inp.dataset.capDow] = v;
+      let h = parseFloat(inp.value);
+      if (isNaN(h) || h < 0) h = 0;
+      if (h > 16) h = 16;
+      phase.capacityMin = phase.capacityMin || defaultCapacity();
+      phase.capacityMin[+inp.dataset.capDow] = Math.round(h * 60);
       save(); renderPhase();
     };
   });
@@ -1430,7 +1498,7 @@ function renderDay() {
           <button class="task-check ${done?'is-done':''}" data-rt-done="${rid}">${svgCheck()}</button>
           <div class="task-body">
             <div class="task-title ${skip?'is-done':''}">${escapeHtml(r.title)}</div>
-            <div class="task-sched"><span style="color:${col};font-weight:600">${freqLabel(r)}</span>${skip?' · skipped this session':''}</div>
+            <div class="task-sched"><span style="color:${col};font-weight:600">${freqLabel(r)}</span> · ${fmtDur(effortMinutes(r.effort))}${skip?' · skipped this session':''}</div>
           </div>
           <button class="btn xs ghost" data-rt-skip="${rid}">${skip?'Undo':'Skip'}</button>
         </div>`;
@@ -1467,19 +1535,19 @@ function renderDay() {
           <button class="task-check ${t.done?'is-done':''}" data-toggle="${t.id}">${svgCheck()}</button>
           <div class="task-body editable" data-edit-task="${t.id}">
             <div class="task-title ${t.done?'is-done':''}">${escapeHtml(t.title)}</div>
-            ${linked && col ? `<div class="task-sched"><span style="color:${col.color};font-size:12px;font-weight:600">${escapeHtml(linked.title)}</span></div>` : ''}
+            <div class="task-sched">${linked && col ? `<span style="color:${col.color};font-weight:600">${escapeHtml(linked.title)}</span> · ` : ''}${fmtDur(effortMinutes(t.effort))}</div>
           </div>
         </div>`;
       }).join('')}</div>`;
 
   // Load meter — how full this day is vs. its capacity (skip for days already gone).
   const capN  = dayCapacity(phase, iso);
-  const loadN = dayLoadCount(phase, iso, routinePlan);
+  const loadN = dayLoad(phase, iso, routinePlan);
   const loadState = loadN > capN ? 'over' : (loadN >= capN ? 'full' : 'ok');
   const loadPct = capN > 0 ? Math.min(100, Math.round(loadN / capN * 100)) : (loadN ? 100 : 0);
-  const loadMsg = loadState === 'over' ? `${loadN} of ${capN} · a bit full`
-                : loadState === 'full' ? `${loadN} of ${capN} · full`
-                : `${loadN} of ${capN} planned`;
+  const loadMsg = loadState === 'over' ? `${fmtDur(loadN)} of ${fmtDur(capN)} · a bit full`
+                : loadState === 'full' ? `${fmtDur(loadN)} of ${fmtDur(capN)} · full`
+                : `${fmtDur(loadN)} of ${fmtDur(capN)} planned`;
   const capacityHTML = iso < todayISO() ? '' : `
     <div class="load-meter ${loadState}">
       <div class="load-bar"><div class="load-fill" style="width:${loadPct}%"></div></div>

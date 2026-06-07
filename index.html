@@ -323,6 +323,65 @@
   .coach-out ul { margin: 0 0 8px 18px; } .coach-out li { margin: 2px 0; }
   .coach-out h4 { font-size: 14px; font-weight: 600; margin: 10px 0 4px; }
   .coach-out code { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+
+  /* ── Day timeline (hour-by-hour) ── */
+  .timeline { position: relative; max-height: 62vh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+  .tl-inner { position: relative; }
+  .tl-hour { position: absolute; left: 0; right: 0; height: 0; }
+  .tl-hour .tl-hlabel { position: absolute; left: 8px; top: -7px; font-size: 11px; color: var(--faint); background: var(--surface-2); padding: 0 3px; }
+  .tl-hour .tl-hline { position: absolute; left: 52px; right: 0; top: 0; border-top: 1px solid var(--line); }
+  .tl-blocks { position: absolute; left: 52px; right: 6px; top: 0; bottom: 0; }
+  .tl-block { position: absolute; border-radius: 7px; padding: 3px 24px 3px 8px; overflow: hidden; cursor: pointer; background: var(--bg); border-left: 3px solid var(--bc); box-shadow: var(--shadow); transition: filter .12s, transform .08s; }
+  .tl-block:hover { filter: brightness(.97); transform: translateY(-1px); }
+  .tl-block.is-done, .tl-block.is-skip { opacity: .5; }
+  .tl-block.is-done .tl-b-title { text-decoration: line-through; }
+  .tl-b-time { font-size: 10px; color: var(--muted); line-height: 1.1; }
+  .tl-b-title { font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-check { position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--line); background: rgba(255,255,255,.75); color: transparent; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; transition: background .15s, border-color .15s; }
+  .tl-check svg { width: 11px; height: 11px; }
+  .tl-check:hover { border-color: var(--ok); }
+  .tl-block.is-done .tl-check, .tl-any-row.is-done .tl-check { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .tl-anytime { margin-bottom: 12px; padding: 10px 12px; background: var(--surface-2); border: 1px dashed var(--line); border-radius: var(--radius-sm); }
+  .tl-anytime-h { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .tl-any-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }
+  .tl-any-row .tl-check { position: static; }
+  .tl-any-title { flex: 1; font-size: 14px; font-weight: 500; }
+  .tl-any-row.is-done .tl-any-title { text-decoration: line-through; color: var(--muted); }
+  .tl-any-dur { font-size: 12px; color: var(--faint); }
+
+  /* ── Motion & polish ── */
+  @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  #v-home, #v-setup, #v-phase, #v-day { animation: viewIn .28s cubic-bezier(.2,.7,.2,1) both; }
+
+  /* Modal open */
+  @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes dialogIn { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+  .modal-overlay { animation: overlayIn .18s ease both; }
+  .modal-overlay .modal { animation: dialogIn .24s cubic-bezier(.2,.8,.2,1) both; }
+
+  /* Calendar day hover lift */
+  .cal-cell { transition: filter .12s, transform .12s, box-shadow .15s; }
+  .cal-cell:hover:not(.out-phase):not(.empty) { transform: translateY(-1px); box-shadow: var(--shadow); }
+
+  /* Checkbox press feedback */
+  .task-check { transition: transform .12s, background .15s, border-color .15s, color .15s; }
+  .task-check:active { transform: scale(.86); }
+
+  /* Buttons & chips: a touch of lift */
+  .btn:not(.ghost):hover { transform: translateY(-1px); }
+  .coach-chip:active { transform: scale(.96); }
+
+  /* Coach "Thinking…" animated dots */
+  .coach-typing { display: inline-flex; gap: 4px; vertical-align: middle; margin-left: 4px; }
+  .coach-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: coachBlink 1.2s infinite ease-in-out both; }
+  .coach-typing span:nth-child(2) { animation-delay: .18s; }
+  .coach-typing span:nth-child(3) { animation-delay: .36s; }
+  @keyframes coachBlink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+
+  /* Respect users who prefer less motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+  }
 </style>
 </head>
 <body>
@@ -408,7 +467,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.21';
+const APP_VERSION = '0.23';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -1584,7 +1643,7 @@ function coachChips() {
 }
 
 function coachOutHtml() {
-  if (coachState.loading) return `<div class="coach-out loading" id="coach-out">Thinking…</div>`;
+  if (coachState.loading) return `<div class="coach-out loading" id="coach-out">Thinking<span class="coach-typing"><span></span><span></span><span></span></span></div>`;
   if (coachState.error)   return `<div class="coach-out error" id="coach-out">${escapeHtml(coachState.error)}</div>`;
   if (coachState.answer)  return `<div class="coach-out" id="coach-out">${mdToHtml(coachState.answer)}</div>`;
   return '';
@@ -1756,6 +1815,107 @@ function renderPhase() {
   wireCoach(phase);
 }
 
+// ── DAY TIMELINE (hour-by-hour plan, like a calendar day view) ──────────────
+function hmToMin(t) { const m = /^(\d{1,2}):(\d{2})$/.exec(t || ''); return m ? (+m[1]) * 60 + (+m[2]) : null; }
+function minToHM(m) { const h = Math.floor(m / 60), mm = m % 60; return `${h}:${String(mm).padStart(2, '0')}`; }
+
+// Build a concrete by-the-hour plan: appointments sit at their clock time; tasks and
+// routine sessions (which have a duration but no set time) are poured into the open slots.
+function buildDayTimeline(phase, iso, routinePlan, colorMap) {
+  const ROW = 56, MIN_BLOCK = 24, DAY_START = 8 * 60, DAY_END = 23 * 60, GUTTER = 52;
+  const rLog = phase.routineLog || {};
+  const items = [];
+  (phase.appointments || []).filter(a => a.date === iso).forEach(a => {
+    const start = hmToMin(a.time);
+    items.push({ type: 'appt', id: a.id, title: a.title, cat: a.cat || 'appt', done: !!a.done, fixed: start != null, start, dur: Math.max(15, +a.durationMin || 60) });
+  });
+  (phase.tasks || []).filter(t => t.date === iso).forEach(t => {
+    items.push({ type: 'task', id: t.id, title: t.title, goalId: t.goalId, done: !!t.done, fixed: false, start: null, dur: Math.max(10, effortMinutes(t.effort)) });
+  });
+  (routinePlan[iso] || []).forEach(rid => {
+    const r = (phase.routines || []).find(x => x.id === rid); if (!r) return;
+    const st = rLog[`${rid}|${iso}`];
+    items.push({ type: 'routine', id: rid, title: r.title, cat: r.cat || 'sport', done: st === 'done', skip: st === 'skip', fixed: false, start: null, dur: Math.max(10, effortMinutes(r.effort)) });
+  });
+
+  // Free gaps left by the fixed (timed) items, then pour the untimed ones in.
+  const fixed = items.filter(i => i.fixed).sort((a, b) => a.start - b.start);
+  const merged = [];
+  fixed.forEach(f => { const e = f.start + f.dur; if (merged.length && f.start <= merged[merged.length - 1].e) merged[merged.length - 1].e = Math.max(merged[merged.length - 1].e, e); else merged.push({ s: f.start, e }); });
+  const gaps = []; let cur = DAY_START;
+  merged.forEach(m => { if (m.s > cur) gaps.push({ s: cur, e: Math.min(m.s, DAY_END) }); cur = Math.max(cur, m.e); });
+  if (cur < DAY_END) gaps.push({ s: cur, e: DAY_END });
+  const overflow = [];
+  let gi = 0, cursor = gaps.length ? gaps[0].s : DAY_START;
+  items.filter(i => !i.fixed).forEach(it => {
+    let placed = false;
+    while (gi < gaps.length) {
+      if (cursor < gaps[gi].s) cursor = gaps[gi].s;
+      if (cursor + it.dur <= gaps[gi].e) { it.start = cursor; cursor += it.dur; placed = true; break; }
+      gi++; if (gi < gaps.length) cursor = gaps[gi].s;
+    }
+    if (!placed) overflow.push(it);
+  });
+
+  const placed = items.filter(i => i.start != null);
+  let minS = DAY_START, maxE = DAY_END;
+  placed.forEach(b => { minS = Math.min(minS, b.start); maxE = Math.max(maxE, b.start + b.dur); });
+  const rangeStart = Math.max(0, Math.floor(minS / 60) * 60);
+  const rangeEnd = Math.min(24 * 60, Math.ceil(maxE / 60) * 60);
+
+  // Column layout so overlapping blocks sit side by side.
+  const sorted = placed.slice().sort((a, b) => a.start - b.start || b.dur - a.dur);
+  let clusters = [], cl = null, clEnd = -1;
+  sorted.forEach(b => {
+    if (!cl || b.start >= clEnd) { cl = { cols: [], blocks: [] }; clusters.push(cl); clEnd = b.start + b.dur; }
+    let col = 0; while (col < cl.cols.length && cl.cols[col] > b.start) col++;
+    cl.cols[col] = b.start + b.dur; b._col = col; cl.blocks.push(b);
+    clEnd = Math.max(clEnd, b.start + b.dur);
+  });
+  clusters.forEach(c => c.blocks.forEach(b => b._cols = c.cols.length));
+
+  const blockColor = (b) => {
+    if (b.type === 'task') {
+      if (b.goalId && colorMap[b.goalId] != null) { const c = GOAL_PALETTE[colorMap[b.goalId] % GOAL_PALETTE.length]; return { c: c.color, bg: c.bg }; }
+      return { c: '#5B6472', bg: '#EEF1F5' };
+    }
+    const cc = CATS[b.cat]; return { c: cc ? cc.color : 'var(--muted)', bg: cc ? cc.bg : 'var(--surface-2)' };
+  };
+  const editAttr = (b) => b.type === 'task' ? `data-edit-task="${b.id}"` : b.type === 'appt' ? `data-edit-appt="${b.id}"` : `data-edit-routine="${b.id}"`;
+  const checkAttr = (b) => b.type === 'task' ? `data-check-task="${b.id}"` : b.type === 'appt' ? `data-check-appt="${b.id}"` : `data-check-rt="${b.id}"`;
+
+  const blocksHTML = placed.map(b => {
+    const top = (b.start - rangeStart) / 60 * ROW;
+    const height = Math.max(MIN_BLOCK, b.dur / 60 * ROW - 3);
+    const wPct = 100 / b._cols, leftPct = b._col * wPct;
+    const { c, bg } = blockColor(b);
+    const tall = height >= 42;
+    return `<div class="tl-block type-${b.type}${b.done ? ' is-done' : ''}${b.skip ? ' is-skip' : ''}${tall ? ' tall' : ''}"
+      style="top:${top}px;height:${height}px;left:calc(${leftPct}% + 1px);width:calc(${wPct}% - 3px);--bc:${c};--bg:${bg}" ${editAttr(b)}>
+      <button class="tl-check" ${checkAttr(b)} aria-label="Mark done">${svgCheck()}</button>
+      ${tall ? `<div class="tl-b-time">${minToHM(b.start)}–${minToHM(b.start + b.dur)}</div>` : ''}
+      <div class="tl-b-title">${escapeHtml(b.title)}</div>
+    </div>`;
+  }).join('');
+
+  let lines = '';
+  for (let m = rangeStart; m <= rangeEnd; m += 60) {
+    lines += `<div class="tl-hour" style="top:${(m - rangeStart) / 60 * ROW}px"><span class="tl-hlabel">${minToHM(m)}</span><span class="tl-hline"></span></div>`;
+  }
+
+  const anytime = overflow.length ? `<div class="tl-anytime">
+    <div class="tl-anytime-h">No room on the clock — fit in anytime:</div>
+    ${overflow.map(b => `<div class="tl-any-row${b.done ? ' is-done' : ''}" ${editAttr(b)}>
+      <button class="tl-check" ${checkAttr(b)} aria-label="Mark done">${svgCheck()}</button>
+      <span class="tl-any-title">${escapeHtml(b.title)}</span><span class="tl-any-dur">${fmtDur(b.dur)}</span>
+    </div>`).join('')}
+  </div>` : '';
+
+  const scrollTop = Math.max(0, (minS - rangeStart) / 60 * ROW - 6);
+  const H = (rangeEnd - rangeStart) / 60 * ROW + 8;
+  return `${anytime}<div class="timeline" data-scroll="${Math.round(scrollTop)}"><div class="tl-inner" style="height:${H}px;--gutter:${GUTTER}px">${lines}<div class="tl-blocks">${blocksHTML}</div></div></div>`;
+}
+
 // ── DAY VIEW ───────────────────────────────────────────────────────────────
 
 function renderDay() {
@@ -1812,63 +1972,7 @@ function renderDay() {
       }).join('')}
     </div>`;
 
-  // Routines planned for this day
-  const rLog   = phase.routineLog || {};
-  const rToday = routinePlan[iso] || [];
-  const routineHTML = rToday.length === 0 ? '' : `
-    <div class="panel">
-      <div class="panel-title">Routines</div>
-      <div class="task-list">${rToday.map(rid => {
-        const r = (phase.routines||[]).find(x => x.id === rid);
-        if (!r) return '';
-        const st   = rLog[`${rid}|${iso}`];
-        const col  = CATS[r.cat] ? CATS[r.cat].color : 'var(--muted)';
-        const done = st === 'done', skip = st === 'skip';
-        return `<div class="task-item">
-          <button class="task-check ${done?'is-done':''}" data-rt-done="${rid}">${svgCheck()}</button>
-          <div class="task-body">
-            <div class="task-title ${skip?'is-done':''}">${escapeHtml(r.title)}</div>
-            <div class="task-sched"><span style="color:${col};font-weight:600">${freqLabel(r)}</span> · ${fmtDur(effortMinutes(r.effort))}${skip?' · skipped this session':''}</div>
-          </div>
-          <button class="btn xs ghost" data-rt-skip="${rid}">${skip?'Undo':'Skip'}</button>
-        </div>`;
-      }).join('')}</div>
-    </div>`;
-
-  // Appointments on this day
-  const dayAppts = (phase.appointments||[]).filter(a => a.date === iso)
-    .sort((a, b) => (a.time||'') < (b.time||'') ? -1 : 1);
-  const apptHTML = dayAppts.length === 0 ? '' : `
-    <div class="panel">
-      <div class="panel-title">Appointments</div>
-      <div class="task-list">${dayAppts.map(a => {
-        const col = CATS[a.cat] ? CATS[a.cat].color : 'var(--muted)';
-        return `<div class="task-item">
-          <button class="task-check ${a.done?'is-done':''}" data-appt-done="${a.id}">${svgCheck()}</button>
-          <div class="task-body editable" data-edit-appt="${a.id}">
-            <div class="task-title ${a.done?'is-done':''}">${escapeHtml(a.title)}</div>
-            <div class="task-sched">${a.time ? `🕑 ${a.time} · ` : ''}<span style="color:${col};font-weight:600">${CATS[a.cat] ? CATS[a.cat].label : 'Other'}</span></div>
-          </div>
-        </div>`;
-      }).join('')}</div>
-    </div>`;
-
-  // Tasks
-  const dayTasks = (phase.tasks||[]).filter(t => t.date === iso);
-  const taskRows = dayTasks.length === 0
-    ? `<div class="no-items">No tasks for this day yet.</div>`
-    : `<div class="task-list">${dayTasks.map(t => {
-        const linked = t.goalId ? (phase.goals||[]).find(g => g.id === t.goalId) : null;
-        const ci     = linked ? (colorMap[linked.id]??0) : -1;
-        const col    = ci >= 0 ? GOAL_PALETTE[ci % GOAL_PALETTE.length] : null;
-        return `<div class="task-item">
-          <button class="task-check ${t.done?'is-done':''}" data-toggle="${t.id}">${svgCheck()}</button>
-          <div class="task-body editable" data-edit-task="${t.id}">
-            <div class="task-title ${t.done?'is-done':''}">${escapeHtml(t.title)}</div>
-            <div class="task-sched">${linked && col ? `<span style="color:${col.color};font-weight:600">${escapeHtml(linked.title)}</span> · ` : ''}${fmtDur(effortMinutes(t.effort))}</div>
-          </div>
-        </div>`;
-      }).join('')}</div>`;
+  const timelineHTML = buildDayTimeline(phase, iso, routinePlan, colorMap);
 
   // Load meter — how full this day is vs. its capacity (skip for days already gone).
   const capN  = dayCapacity(phase, iso);
@@ -1893,59 +1997,33 @@ function renderDay() {
       ${capacityHTML}
     </div>
     ${deadlineHTML}
-    ${apptHTML}
-    ${routineHTML}
     <div class="panel">
-      <div class="panel-title">Tasks <span class="hint ml">tap a task to edit</span></div>
-      ${taskRows}
+      <div class="panel-title">Day plan <span class="hint ml">by the hour</span></div>
+      ${timelineHTML}
       <button class="btn ghost wide" id="day-add-task" style="margin-top:12px">+ Add a task to this day</button>
     </div>
   `;
 
-  document.getElementById('day-add-task').onclick = () => openEditor('task', null, iso);
+  const dc = document.getElementById('day-content');
+  dc.querySelector('#day-add-task').onclick = () => openEditor('task', null, iso);
 
-  // Task: toggle done
-  document.getElementById('day-content').querySelectorAll('[data-toggle]').forEach(btn => {
-    btn.onclick = () => {
-      const t = phase.tasks.find(x => x.id === btn.dataset.toggle);
-      if (t) { t.done = !t.done; save(); renderDay(); }
-    };
-  });
-  // Task: tap body to edit
-  document.getElementById('day-content').querySelectorAll('[data-edit-task]').forEach(el => {
-    el.onclick = () => { const t = phase.tasks.find(x => x.id === el.dataset.editTask); if (t) openEditor('task', t); };
-  });
+  // Scroll the timeline to the first block / morning.
+  const tl = dc.querySelector('.timeline'); if (tl) tl.scrollTop = +tl.dataset.scroll || 0;
 
-  // Appointment: toggle done
-  document.getElementById('day-content').querySelectorAll('[data-appt-done]').forEach(btn => {
-    btn.onclick = () => {
-      const a = phase.appointments.find(x => x.id === btn.dataset.apptDone);
-      if (a) { a.done = !a.done; save(); renderDay(); }
+  // Block check buttons (don't open the editor — stop the click bubbling).
+  dc.querySelectorAll('.tl-check').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      if (btn.dataset.checkTask)      { const t = phase.tasks.find(x => x.id === btn.dataset.checkTask); if (t) { t.done = !t.done; save(); renderDay(); } }
+      else if (btn.dataset.checkAppt) { const a = phase.appointments.find(x => x.id === btn.dataset.checkAppt); if (a) { a.done = !a.done; save(); renderDay(); } }
+      else if (btn.dataset.checkRt)   { const k = `${btn.dataset.checkRt}|${iso}`; if (phase.routineLog[k] === 'done') delete phase.routineLog[k]; else phase.routineLog[k] = 'done'; save(); renderDay(); }
     };
-  });
-  // Appointment: tap body to edit
-  document.getElementById('day-content').querySelectorAll('[data-edit-appt]').forEach(el => {
-    el.onclick = () => { const a = phase.appointments.find(x => x.id === el.dataset.editAppt); if (a) openEditor('appointment', a); };
   });
 
-  // Routine session: mark done / undo
-  document.getElementById('day-content').querySelectorAll('[data-rt-done]').forEach(btn => {
-    btn.onclick = () => {
-      const k = `${btn.dataset.rtDone}|${iso}`;
-      if (phase.routineLog[k] === 'done') delete phase.routineLog[k];
-      else phase.routineLog[k] = 'done';
-      save(); renderDay();
-    };
-  });
-  // Routine session: skip / undo skip
-  document.getElementById('day-content').querySelectorAll('[data-rt-skip]').forEach(btn => {
-    btn.onclick = () => {
-      const k = `${btn.dataset.rtSkip}|${iso}`;
-      if (phase.routineLog[k] === 'skip') delete phase.routineLog[k];
-      else phase.routineLog[k] = 'skip';
-      save(); renderDay();
-    };
-  });
+  // Tap a block to edit the underlying item.
+  dc.querySelectorAll('[data-edit-task]').forEach(el => { el.onclick = () => { const t = phase.tasks.find(x => x.id === el.dataset.editTask); if (t) openEditor('task', t); }; });
+  dc.querySelectorAll('[data-edit-appt]').forEach(el => { el.onclick = () => { const a = phase.appointments.find(x => x.id === el.dataset.editAppt); if (a) openEditor('appointment', a); }; });
+  dc.querySelectorAll('[data-edit-routine]').forEach(el => { el.onclick = () => { const r = phase.routines.find(x => x.id === el.dataset.editRoutine); if (r) openEditor('routine', r); }; });
 }
 
 // ── EVENTS ─────────────────────────────────────────────────────────────────

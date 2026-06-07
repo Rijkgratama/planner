@@ -306,14 +306,16 @@
   /* Coach panel */
   .panel.coach { border-color: var(--accent-soft); }
   .coach-intro { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .coach-key-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .coach-key-row input { flex: 1; }
   .coach-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
   .coach-chip { font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 1px solid transparent; border-radius: 100px; padding: 5px 11px; cursor: pointer; transition: filter .15s; }
   .coach-chip:hover { filter: brightness(.97); }
   .coach-input { width: 100%; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 10px 12px; font: inherit; font-size: 14px; resize: vertical; outline: none; transition: border-color .15s, box-shadow .15s; }
   .coach-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .coach-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-  .coach-tier-wrap { margin-left: auto; }
-  .coach-tier { width: auto; padding: 7px 8px; font-size: 12px; }
+  .coach-model-wrap { margin-left: auto; min-width: 0; }
+  .coach-model { width: 100%; max-width: 150px; padding: 7px 8px; font-size: 12px; }
   .coach-out { margin-top: 12px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 14px; line-height: 1.55; }
   .coach-out.loading { color: var(--muted); }
   .coach-out.error { background: var(--urgent-bg); border-color: transparent; color: var(--urgent); }
@@ -406,7 +408,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.18';
+const APP_VERSION = '0.21';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -1340,7 +1342,7 @@ function buildCapacityEditor(phase) {
     <div class="hint" style="margin-top:10px">Hours that feel doable each day. The planner keeps days under this when it can.</div>`;
 }
 
-// ── COACH (free on-device AI planning assistant — WebLLM / WebGPU) ──────────
+// ── COACH (free AI planning assistant — OpenRouter free models) ─────────────
 
 const COACH_SYSTEM = `You are the coach inside "Lock In Planner," a personal planning app. Act like a calm, supportive coach in the user's corner — warm, encouraging, never naggy. North star: help them have *doable* days while making sure their main goals still get done, and keep the other things that matter (exercise, chores, the dog) from being crowded out.
 
@@ -1370,63 +1372,78 @@ Rules: "day" may be null to let the app auto-schedule a task. For exercise like 
 
 let coachState = { answer: '', error: '', loading: false, question: '' };
 
-// On-device model via WebLLM (WebGPU) — free, private, no key. Loaded lazily on first ask.
-// Strength tiers; we resolve the actual model id against WebLLM's prebuilt list at load time
-// (preferring the bigger half-precision build the GPU supports). Qwen2.5 is strong at the
-// structured "actions" output the coach needs.
-const COACH_TIER_LS = 'lockin:coach-tier';
-const COACH_TIERS = {
-  light:    ['Llama-3.2-1B-Instruct'],
-  balanced: ['Qwen2.5-3B-Instruct', 'Llama-3.2-3B-Instruct'],
-  strong:   ['Qwen2.5-7B-Instruct', 'Llama-3.1-8B-Instruct', 'Qwen2.5-3B-Instruct'],
-};
-function getCoachTier()  { try { return localStorage.getItem(COACH_TIER_LS) || 'balanced'; } catch (e) { return 'balanced'; } }
-function setCoachTier(v) { try { localStorage.setItem(COACH_TIER_LS, v); } catch (e) {} }
+// Free hosted coach via OpenRouter — free models, OpenAI-compatible, browser-friendly (CORS *).
+const COACH_KEY_LS = 'lockin:openrouter-key';
+const COACH_MODEL_LS = 'lockin:openrouter-model';
+function getKey()    { try { return localStorage.getItem(COACH_KEY_LS) || ''; } catch (e) { return ''; } }
+function setKey(v)   { try { localStorage.setItem(COACH_KEY_LS, v); } catch (e) {} }
+function clearKey()  { try { localStorage.removeItem(COACH_KEY_LS); } catch (e) {} }
+function getModel()  { try { return localStorage.getItem(COACH_MODEL_LS) || ''; } catch (e) { return ''; } }
+function setModel(v) { try { localStorage.setItem(COACH_MODEL_LS, v); } catch (e) {} }
 
-let localEngine = null;
-let localModelId = '';
-let localStatus = { state: 'idle', progress: '' };   // idle | loading | ready | error
-function webgpuSupported() { return typeof navigator !== 'undefined' && 'gpu' in navigator; }
-async function gpuHasF16() {
-  try { const a = await navigator.gpu.requestAdapter(); return !!(a && a.features && a.features.has('shader-f16')); } catch (e) { return false; }
+const OR_API = 'https://openrouter.ai/api/v1';
+// Preferred free models for the structured "actions" output, best first; falls back to whatever
+// free models are available if none of these exist.
+const OR_PREFER = ['moonshotai/kimi-k2.6:free', 'google/gemma-4-31b-it:free', 'meta-llama/llama-3.3-70b-instruct:free', 'qwen/qwen-2.5-72b-instruct:free', 'deepseek/deepseek-chat:free'];
+let orFreeModels = null;   // [{id,label}] once loaded
+let orPicked = '';         // resolved default when the user hasn't chosen one
+async function loadFreeModels() {
+  if (orFreeModels) return orFreeModels;
+  try {
+    const res = await fetch(`${OR_API}/models`);
+    if (res.ok) {
+      const data = await res.json();
+      orFreeModels = (data.data || []).filter(m => String(m.id).endsWith(':free'))
+        .map(m => ({ id: m.id, label: (m.name || m.id).replace(/\s*\(free\)\s*/i, '').trim() }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+  } catch (e) {}
+  if (!orFreeModels) orFreeModels = [];
+  return orFreeModels;
 }
-async function pickLocalModel(webllm) {
-  const want = COACH_TIERS[getCoachTier()] || COACH_TIERS.balanced;
-  const f16 = await gpuHasF16();
-  const list = (webllm.prebuiltAppConfig && webllm.prebuiltAppConfig.model_list) || [];
-  const order = [];
-  if (f16) want.forEach(w => order.push(`${w}-q4f16_1-MLC`));   // prefer half-precision when supported
-  want.forEach(w => order.push(`${w}-q4f32_1-MLC`));            // full-precision fallback
-  for (const id of order) { const hit = list.find(m => m.model_id === id); if (hit) return hit.model_id; }
-  for (const w of want) { const hit = list.find(m => m.model_id.includes(w)); if (hit) return hit.model_id; }
-  return (list[0] && list[0].model_id) || 'Llama-3.2-1B-Instruct-q4f32_1-MLC';
+async function pickModel() {
+  const chosen = getModel(); if (chosen) return chosen;
+  if (orPicked) return orPicked;
+  const list = await loadFreeModels();
+  for (const p of OR_PREFER) { if (list.find(m => m.id === p)) { orPicked = p; return p; } }
+  orPicked = (list[0] && list[0].id) || 'meta-llama/llama-3.3-70b-instruct:free';
+  return orPicked;
 }
-let coachWorker = null;
-async function ensureLocalEngine(phase) {
-  const webllm = await import('https://esm.run/@mlc-ai/web-llm');   // light API import; the model runs in the worker
-  const desired = await pickLocalModel(webllm);
-  if (localEngine && localModelId === desired) return localEngine;
-  // Tear down any previously loaded engine/worker (e.g. when switching strength tier).
-  if (localEngine) { try { if (localEngine.unload) await localEngine.unload(); } catch (e) {} localEngine = null; }
-  if (coachWorker) { try { coachWorker.terminate(); } catch (e) {} coachWorker = null; }
-  localStatus = { state: 'loading', progress: 'Starting…' };
-  renderCoachBody(phase);
-  const onProgress = (r) => {
-    localStatus.progress = r && r.text ? r.text : (r && r.progress != null ? Math.round(r.progress * 100) + '%' : '');
-    const el = document.getElementById('coach-prog'); if (el) el.textContent = localStatus.progress;
+
+async function callOpenRouter(phase, q) {
+  const model = await pickModel();
+  const body = {
+    model, temperature: 0.6, max_tokens: 2048,
+    messages: [
+      { role: 'system', content: COACH_SYSTEM },
+      { role: 'user', content: `My current planner data (JSON):\n\n${JSON.stringify(buildCoachContext(phase))}\n\n${q}` },
+    ],
   };
   try {
-    // Preferred: run inference in a background worker so the UI never freezes while generating.
-    coachWorker = new Worker('coach-worker.js', { type: 'module' });
-    localEngine = await webllm.CreateWebWorkerMLCEngine(coachWorker, desired, { initProgressCallback: onProgress });
-  } catch (e) {
-    // Fallback: main-thread engine (older browser, or worker blocked).
-    if (coachWorker) { try { coachWorker.terminate(); } catch (_) {} coachWorker = null; }
-    localEngine = await webllm.CreateMLCEngine(desired, { initProgressCallback: onProgress });
+    const res = await fetch(`${OR_API}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'authorization': 'Bearer ' + getKey(),
+        'HTTP-Referer': location.origin,
+        'X-Title': 'Lock In Planner',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      let msg = `Request failed (${res.status}).`;
+      if (res.status === 401 || res.status === 403) msg = 'That key was rejected. Check it at openrouter.ai/keys.';
+      else if (res.status === 429) msg = 'Rate limited — free models have daily limits. Wait a bit, or pick a different free model below.';
+      else { try { const e = await res.json(); if (e && e.error && e.error.message) msg = 'Error: ' + e.error.message; } catch (_) {} }
+      return { ok: false, error: msg };
+    }
+    const data = await res.json();
+    const text = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
+    if (!text) return { ok: false, error: 'Empty response — try another free model below, or rephrase.' };
+    return { ok: true, text };
+  } catch (err) {
+    return { ok: false, error: 'Could not reach OpenRouter (network). Are you online?' };
   }
-  localModelId = desired;
-  localStatus.state = 'ready';
-  return localEngine;
 }
 
 // Compact snapshot of the phase for the model to reason over.
@@ -1533,41 +1550,14 @@ function finishCoach(phase, rawText) {
   else renderCoachBody(phase);
 }
 
-function askCoach(phase, q) {
+async function askCoach(phase, q) {
+  if (!getKey()) return;
   q = (q || '').trim() || 'Plan my week and tell me if anything looks too full.';
-  return askLocal(phase, q);
-}
-
-async function askLocal(phase, q) {
-  coachState = { question: q, answer: '', error: '', loading: true, streaming: false };
+  coachState = { question: q, answer: '', error: '', loading: true };
   renderCoachBody(phase);
-  try {
-    const engine = await ensureLocalEngine(phase);
-    coachState.loading = false; coachState.streaming = true; coachState.answer = '';
-    localStatus.state = 'ready';
-    renderCoachBody(phase);
-    const out = document.getElementById('coach-out');
-    const stream = await engine.chat.completions.create({
-      stream: true, temperature: 0.6, max_tokens: 1200,
-      messages: [
-        { role: 'system', content: COACH_SYSTEM },
-        { role: 'user', content: `My current planner data (JSON):\n\n${JSON.stringify(buildCoachContext(phase))}\n\n${q}` },
-      ],
-    });
-    let acc = '';
-    for await (const chunk of stream) {
-      const d = chunk.choices && chunk.choices[0] && chunk.choices[0].delta ? (chunk.choices[0].delta.content || '') : '';
-      if (d) { acc += d; if (out) out.innerHTML = mdToHtml(acc); }
-    }
-    finishCoach(phase, acc.trim() || 'No response generated — try rephrasing.');
-  } catch (err) {
-    coachState.loading = false; coachState.streaming = false;
-    localStatus = { state: 'error', progress: '' };
-    coachState.error = !webgpuSupported()
-      ? 'On-device AI needs WebGPU, which this browser doesn’t support. Try the latest Chrome or Edge.'
-      : 'Could not start the on-device model (' + ((err && err.message) ? err.message : err) + '). Please try again.';
-    renderCoachBody(phase);
-  }
+  const r = await callOpenRouter(phase, q);
+  if (!r.ok) { coachState.loading = false; coachState.error = r.error; renderCoachBody(phase); return; }
+  finishCoach(phase, r.text);
 }
 
 // Tiny markdown → HTML (bold, inline code, bullets, headings). Escapes first.
@@ -1594,29 +1584,33 @@ function coachChips() {
 }
 
 function coachOutHtml() {
-  if (localStatus.state === 'loading') return `<div class="coach-out loading" id="coach-out">Setting up your on-device coach… <span id="coach-prog">${escapeHtml(localStatus.progress || '')}</span><br><span class="hint">First time only — downloading the model.</span></div>`;
-  if (coachState.loading)  return `<div class="coach-out loading" id="coach-out">Thinking…</div>`;
-  if (coachState.error)    return `<div class="coach-out error" id="coach-out">${escapeHtml(coachState.error)}</div>`;
-  if (coachState.streaming || coachState.answer) return `<div class="coach-out" id="coach-out">${mdToHtml(coachState.answer || '')}</div>`;
+  if (coachState.loading) return `<div class="coach-out loading" id="coach-out">Thinking…</div>`;
+  if (coachState.error)   return `<div class="coach-out error" id="coach-out">${escapeHtml(coachState.error)}</div>`;
+  if (coachState.answer)  return `<div class="coach-out" id="coach-out">${mdToHtml(coachState.answer)}</div>`;
   return '';
 }
 
 function buildCoachBody() {
-  if (!webgpuSupported()) {
-    return `<p class="coach-intro">This free coach runs right on your device — but it needs <strong>WebGPU</strong>, which this browser doesn’t support. Try the latest Chrome or Edge.</p>`;
+  if (!getKey()) {
+    return `
+      <p class="coach-intro">A free, fast AI coach that reads your plan and can change it for you — add, move, or remove tasks, routines and appointments. It uses OpenRouter's free models (no credit card).</p>
+      <div class="coach-key-row">
+        <input type="password" id="coach-key" placeholder="Paste your OpenRouter key…" autocomplete="off">
+        <button class="btn sm" id="coach-key-save">Save</button>
+      </div>
+      <div class="hint">Get a free key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a> — sign in (Google/GitHub), then “Create Key.” Stored only in this browser; sent only to OpenRouter when you ask.</div>`;
   }
-  const busy = coachState.loading || localStatus.state === 'loading';
-  const tier = getCoachTier();
-  const tierOpt = (v, label) => `<option value="${v}"${tier === v ? ' selected' : ''}>${label}</option>`;
+  const sel = getModel() || orPicked;
+  const modelSelect = (orFreeModels && orFreeModels.length)
+    ? `<span class="coach-model-wrap"><select id="coach-model" class="coach-model" title="Free model — switch if one is rate-limited">${orFreeModels.map(m => `<option value="${escapeHtml(m.id)}"${m.id === sel ? ' selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}</select></span>`
+    : '';
   return `
-    <p class="coach-intro">Runs entirely on your device — no key, no cost, private. The first question downloads the model once (then it works offline). A stronger model follows your "make this change" requests more reliably, but is a bigger download and slower.</p>
     <div class="coach-chips">${coachChips()}</div>
-    <textarea id="coach-input" class="coach-input" rows="2" placeholder="Ask your coach anything about your plan…  (Ctrl/⌘+Enter to send)">${escapeHtml(coachState.question || '')}</textarea>
+    <textarea id="coach-input" class="coach-input" rows="2" placeholder="Ask anything — e.g. plan an hour for a run next week  (Ctrl/⌘+Enter to send)">${escapeHtml(coachState.question || '')}</textarea>
     <div class="coach-actions">
-      <button class="btn sm" id="coach-ask"${busy ? ' disabled' : ''}>${localStatus.state === 'loading' ? 'Loading…' : (coachState.loading ? 'Thinking…' : 'Ask coach')}</button>
-      <span class="coach-tier-wrap"><select id="coach-tier" class="coach-tier" title="Bigger = smarter but heavier">
-        ${tierOpt('light', 'Light · ~1 GB')}${tierOpt('balanced', 'Balanced · ~2 GB')}${tierOpt('strong', 'Strong · ~4–5 GB')}
-      </select></span>
+      <button class="btn sm" id="coach-ask"${coachState.loading ? ' disabled' : ''}>${coachState.loading ? 'Thinking…' : 'Ask coach'}</button>
+      ${modelSelect}
+      <button class="btn xs ghost" id="coach-forget" title="Remove saved key">key ✕</button>
     </div>
     ${coachOutHtml()}`;
 }
@@ -1629,13 +1623,24 @@ function renderCoachBody(phase) {
 }
 
 function wireCoach(phase) {
+  const save = document.getElementById('coach-key-save');
+  if (save) {
+    const inp = document.getElementById('coach-key');
+    const doSave = () => { const v = (inp.value || '').trim(); if (!v) { inp.focus(); return; } setKey(v); coachState = { question: '', answer: '', error: '', loading: false }; renderCoachBody(phase); toast('Coach connected'); };
+    save.onclick = doSave;
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSave(); });
+  }
   const ask = document.getElementById('coach-ask');
   if (ask) ask.onclick = () => askCoach(phase, (document.getElementById('coach-input') || {}).value || '');
   const input = document.getElementById('coach-input');
   if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); askCoach(phase, input.value); } });
   document.querySelectorAll('[data-coach-q]').forEach(b => { b.onclick = () => askCoach(phase, b.dataset.coachQ); });
-  const tier = document.getElementById('coach-tier');
-  if (tier) tier.onchange = () => { setCoachTier(tier.value); if (localStatus.state !== 'loading') toast('Loads on your next question'); };
+  const ms = document.getElementById('coach-model');
+  if (ms) ms.onchange = () => setModel(ms.value);
+  const forget = document.getElementById('coach-forget');
+  if (forget) forget.onclick = () => { if (confirm('Remove your saved key from this browser?')) { clearKey(); coachState = { question: '', answer: '', error: '', loading: false }; renderCoachBody(phase); } };
+  // Lazily load the free-model list once a key is present, then re-render to show the picker.
+  if (getKey() && !orFreeModels) loadFreeModels().then(() => { if (getKey() && document.getElementById('coach-body')) renderCoachBody(phase); });
 }
 
 // ── PHASE VIEW ─────────────────────────────────────────────────────────────

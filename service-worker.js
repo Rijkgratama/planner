@@ -1,9 +1,10 @@
 // Bump VERSION on each deploy to retire old caches.
-const VERSION = 'v0.13';
+const VERSION = 'v0.19';
 const CACHE = `lock-in-planner-${VERSION}`;
 const ASSETS = [
   './',
   './index.html',
+  './coach-worker.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -53,8 +54,8 @@ self.addEventListener('fetch', (e) => {
         return hit || fetchPromise;
       })
     );
-  } else {
-    // Cross-origin (fonts): network-first, fall back to cache.
+  } else if (url.hostname.endsWith('gstatic.com') || url.hostname.endsWith('googleapis.com')) {
+    // Fonts: network-first, fall back to cache.
     e.respondWith(
       fetch(req).then((res) => {
         const copy = res.clone();
@@ -63,4 +64,6 @@ self.addEventListener('fetch', (e) => {
       }).catch(() => caches.match(req))
     );
   }
+  // Other cross-origin (on-device model weights, esm.run modules): not intercepted —
+  // let the browser fetch and cache them itself, so they never bloat the app cache.
 });

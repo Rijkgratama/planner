@@ -302,6 +302,25 @@
 
   /* Over-capacity day marker on the calendar */
   .cal-cell.is-over::after { content: ''; position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--soon); }
+
+  /* Coach panel */
+  .panel.coach { border-color: var(--accent-soft); }
+  .coach-intro { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .coach-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .coach-chip { font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 1px solid transparent; border-radius: 100px; padding: 5px 11px; cursor: pointer; transition: filter .15s; }
+  .coach-chip:hover { filter: brightness(.97); }
+  .coach-input { width: 100%; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 10px 12px; font: inherit; font-size: 14px; resize: vertical; outline: none; transition: border-color .15s, box-shadow .15s; }
+  .coach-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .coach-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .coach-tier-wrap { margin-left: auto; }
+  .coach-tier { width: auto; padding: 7px 8px; font-size: 12px; }
+  .coach-out { margin-top: 12px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 14px; line-height: 1.55; }
+  .coach-out.loading { color: var(--muted); }
+  .coach-out.error { background: var(--urgent-bg); border-color: transparent; color: var(--urgent); }
+  .coach-out p { margin: 0 0 8px; } .coach-out p:last-child { margin-bottom: 0; }
+  .coach-out ul { margin: 0 0 8px 18px; } .coach-out li { margin: 2px 0; }
+  .coach-out h4 { font-size: 14px; font-weight: 600; margin: 10px 0 4px; }
+  .coach-out code { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -387,7 +406,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.12';
+const APP_VERSION = '0.18';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -1321,6 +1340,304 @@ function buildCapacityEditor(phase) {
     <div class="hint" style="margin-top:10px">Hours that feel doable each day. The planner keeps days under this when it can.</div>`;
 }
 
+// ── COACH (free on-device AI planning assistant — WebLLM / WebGPU) ──────────
+
+const COACH_SYSTEM = `You are the coach inside "Lock In Planner," a personal planning app. Act like a calm, supportive coach in the user's corner — warm, encouraging, never naggy. North star: help them have *doable* days while making sure their main goals still get done, and keep the other things that matter (exercise, chores, the dog) from being crowded out.
+
+You receive the user's current planner as JSON: a phase (planning period with start/end), main goals with deadlines (often exams), weekly routines (times per week + effort in minutes), appointments, one-off tasks, daily capacity in hours per weekday, and a 7-day forecast of planned minutes vs capacity.
+
+Advising:
+- Be concise and practical — a few short paragraphs or bullets, not an essay.
+- Protect the main goals first, especially near deadlines, but find balance.
+- Flag over-capacity days gently and say what to move.
+- Reference specific weekdays/dates. Reason relative to the "today" date in the data.
+- Never invent goals/tasks/dates not in the data; if something needed is missing, say so.
+
+Changing the plan:
+You CAN edit the planner. When the user asks you to add, move, or remove something, actually make the change by including a fenced \`\`\`json code block at the very END of your reply containing an "actions" array. First write a short, friendly confirmation in plain text, then the block. Only include the block when they truly want a change — for pure advice, omit it entirely.
+
+Action schema (ISO dates YYYY-MM-DD, within the phase start..end; prefer lighter days from next7Days):
+\`\`\`json
+{"actions":[
+  {"op":"add_task","title":"Run","day":"2026-06-12","effortMinutes":60,"goal":null},
+  {"op":"add_appointment","title":"Dentist","date":"2026-06-12","time":"14:00"},
+  {"op":"add_routine","title":"Stretch","timesPerWeek":3,"effortMinutes":15},
+  {"op":"reschedule_task","title":"Run","day":"2026-06-13"},
+  {"op":"delete","kind":"task","title":"Run"}
+]}
+\`\`\`
+Rules: "day" may be null to let the app auto-schedule a task. For exercise like a run, use add_task (or add_routine if it recurs weekly). Match existing items by their exact title for reschedule/delete. "goal" (optional) is a main-goal title to link a task to. Keep the JSON minimal and valid. Don't mention the JSON block in your prose — just confirm naturally (e.g. "Done — I've put an hour for a run on Thursday, your lightest day next week.").`;
+
+let coachState = { answer: '', error: '', loading: false, question: '' };
+
+// On-device model via WebLLM (WebGPU) — free, private, no key. Loaded lazily on first ask.
+// Strength tiers; we resolve the actual model id against WebLLM's prebuilt list at load time
+// (preferring the bigger half-precision build the GPU supports). Qwen2.5 is strong at the
+// structured "actions" output the coach needs.
+const COACH_TIER_LS = 'lockin:coach-tier';
+const COACH_TIERS = {
+  light:    ['Llama-3.2-1B-Instruct'],
+  balanced: ['Qwen2.5-3B-Instruct', 'Llama-3.2-3B-Instruct'],
+  strong:   ['Qwen2.5-7B-Instruct', 'Llama-3.1-8B-Instruct', 'Qwen2.5-3B-Instruct'],
+};
+function getCoachTier()  { try { return localStorage.getItem(COACH_TIER_LS) || 'balanced'; } catch (e) { return 'balanced'; } }
+function setCoachTier(v) { try { localStorage.setItem(COACH_TIER_LS, v); } catch (e) {} }
+
+let localEngine = null;
+let localModelId = '';
+let localStatus = { state: 'idle', progress: '' };   // idle | loading | ready | error
+function webgpuSupported() { return typeof navigator !== 'undefined' && 'gpu' in navigator; }
+async function gpuHasF16() {
+  try { const a = await navigator.gpu.requestAdapter(); return !!(a && a.features && a.features.has('shader-f16')); } catch (e) { return false; }
+}
+async function pickLocalModel(webllm) {
+  const want = COACH_TIERS[getCoachTier()] || COACH_TIERS.balanced;
+  const f16 = await gpuHasF16();
+  const list = (webllm.prebuiltAppConfig && webllm.prebuiltAppConfig.model_list) || [];
+  const order = [];
+  if (f16) want.forEach(w => order.push(`${w}-q4f16_1-MLC`));   // prefer half-precision when supported
+  want.forEach(w => order.push(`${w}-q4f32_1-MLC`));            // full-precision fallback
+  for (const id of order) { const hit = list.find(m => m.model_id === id); if (hit) return hit.model_id; }
+  for (const w of want) { const hit = list.find(m => m.model_id.includes(w)); if (hit) return hit.model_id; }
+  return (list[0] && list[0].model_id) || 'Llama-3.2-1B-Instruct-q4f32_1-MLC';
+}
+let coachWorker = null;
+async function ensureLocalEngine(phase) {
+  const webllm = await import('https://esm.run/@mlc-ai/web-llm');   // light API import; the model runs in the worker
+  const desired = await pickLocalModel(webllm);
+  if (localEngine && localModelId === desired) return localEngine;
+  // Tear down any previously loaded engine/worker (e.g. when switching strength tier).
+  if (localEngine) { try { if (localEngine.unload) await localEngine.unload(); } catch (e) {} localEngine = null; }
+  if (coachWorker) { try { coachWorker.terminate(); } catch (e) {} coachWorker = null; }
+  localStatus = { state: 'loading', progress: 'Starting…' };
+  renderCoachBody(phase);
+  const onProgress = (r) => {
+    localStatus.progress = r && r.text ? r.text : (r && r.progress != null ? Math.round(r.progress * 100) + '%' : '');
+    const el = document.getElementById('coach-prog'); if (el) el.textContent = localStatus.progress;
+  };
+  try {
+    // Preferred: run inference in a background worker so the UI never freezes while generating.
+    coachWorker = new Worker('coach-worker.js', { type: 'module' });
+    localEngine = await webllm.CreateWebWorkerMLCEngine(coachWorker, desired, { initProgressCallback: onProgress });
+  } catch (e) {
+    // Fallback: main-thread engine (older browser, or worker blocked).
+    if (coachWorker) { try { coachWorker.terminate(); } catch (_) {} coachWorker = null; }
+    localEngine = await webllm.CreateMLCEngine(desired, { initProgressCallback: onProgress });
+  }
+  localModelId = desired;
+  localStatus.state = 'ready';
+  return localEngine;
+}
+
+// Compact snapshot of the phase for the model to reason over.
+function buildCoachContext(phase) {
+  const today = todayISO();
+  const routinePlan = computeRoutinePlan(phase);
+  const next7 = [];
+  const d = new Date(today + 'T00:00:00');
+  for (let i = 0; i < 7; i++) {
+    const iso = isoFromDate(d); d.setDate(d.getDate() + 1);
+    if (iso < phase.start || iso > phase.end) continue;
+    next7.push({
+      date: iso,
+      weekday: fmtWeekday(iso),
+      plannedMinutes: Math.round(dayLoad(phase, iso, routinePlan)),
+      capacityMinutes: dayCapacity(phase, iso),
+    });
+  }
+  const cap = phase.capacityMin || defaultCapacity();
+  const goalTitle = id => { const g = (phase.goals || []).find(x => x.id === id); return g ? g.title : null; };
+  return {
+    today,
+    phase: { title: phase.title, start: phase.start, end: phase.end },
+    goals: (phase.goals || []).map(g => ({ title: g.title, deadline: g.date, daysLeft: daysUntil(g.date) })),
+    routines: (phase.routines || []).map(r => ({
+      title: r.title,
+      perWeek: r.perWeekMin === r.perWeekMax ? `${r.perWeekMax}` : `${r.perWeekMin}-${r.perWeekMax}`,
+      effortMinutes: effortMinutes(r.effort),
+    })),
+    appointments: (phase.appointments || []).filter(a => a.date >= today)
+      .map(a => ({ title: a.title, date: a.date, time: a.time || null })),
+    tasks: (phase.tasks || []).map(t => ({
+      title: t.title, goal: t.goalId ? goalTitle(t.goalId) : null,
+      day: t.date || 'unscheduled', done: !!t.done, effortMinutes: effortMinutes(t.effort),
+    })),
+    capacityHoursByWeekday: { Mon: cap[1]/60, Tue: cap[2]/60, Wed: cap[3]/60, Thu: cap[4]/60, Fri: cap[5]/60, Sat: cap[6]/60, Sun: cap[0]/60 },
+    next7Days: next7,
+  };
+}
+
+// ── Coach actions: the model can propose changes; we apply them to the planner ──
+function isValidDate(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+
+// Pull a fenced ```json {actions:[...]} ``` block out of the reply, if present.
+function parseActions(text) {
+  const m = String(text).match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (!m) return { actions: [], clean: String(text).trim() };
+  let obj = null;
+  try { obj = JSON.parse(m[1].trim()); } catch (e) { return { actions: [], clean: String(text).trim() }; }
+  const actions = obj && Array.isArray(obj.actions) ? obj.actions : (Array.isArray(obj) ? obj : []);
+  const clean = String(text).replace(m[0], '').trim();
+  return { actions, clean };
+}
+
+// Apply the actions to the phase; return a human-readable list of what changed.
+function applyCoachActions(phase, actions) {
+  const done = [];
+  const byTitle = (arr, name) => (arr || []).find(x => name && x.title.toLowerCase() === String(name).toLowerCase());
+  for (const a of actions) {
+    if (!a || !a.op) continue;
+    try {
+      if (a.op === 'add_task') {
+        const g = a.goal ? byTitle(phase.goals, a.goal) : null;
+        const date = isValidDate(a.day) ? a.day : null;
+        phase.tasks.push({ id: uid(), title: String(a.title || 'Task'), goalId: g ? g.id : null, effort: +a.effortMinutes || EFFORT_DEFAULT, date, done: false, userPlaced: !!date });
+        done.push(`Added task “${a.title}”${date ? ` on ${fmtMed(date)}` : ' (auto-scheduled)'}`);
+      } else if (a.op === 'add_appointment') {
+        if (!isValidDate(a.date)) continue;
+        phase.appointments.push({ id: uid(), title: String(a.title || 'Appointment'), date: a.date, time: a.time || '', cat: (a.cat && CATS[a.cat]) ? a.cat : 'appt', done: false });
+        done.push(`Added appointment “${a.title}” on ${fmtMed(a.date)}${a.time ? ` at ${a.time}` : ''}`);
+      } else if (a.op === 'add_routine') {
+        const n = Math.max(1, parseInt(a.timesPerWeek, 10) || 1);
+        phase.routines.push({ id: uid(), title: String(a.title || 'Routine'), cat: (a.cat && CATS[a.cat]) ? a.cat : 'sport', perWeekMin: n, perWeekMax: n, effort: +a.effortMinutes || EFFORT_DEFAULT });
+        done.push(`Added routine “${a.title}” ${n}×/week`);
+      } else if (a.op === 'reschedule_task') {
+        const t = byTitle(phase.tasks, a.title);
+        if (t && isValidDate(a.day)) { t.date = a.day; t.userPlaced = true; done.push(`Moved “${t.title}” to ${fmtMed(a.day)}`); }
+      } else if (a.op === 'delete') {
+        const kind = a.kind || 'task';
+        const arr = kind === 'appointment' ? phase.appointments : kind === 'routine' ? phase.routines : phase.tasks;
+        const item = byTitle(arr, a.title);
+        if (item) {
+          if (kind === 'appointment') phase.appointments = phase.appointments.filter(x => x !== item);
+          else if (kind === 'routine') phase.routines = phase.routines.filter(x => x !== item);
+          else phase.tasks = phase.tasks.filter(x => x !== item);
+          done.push(`Removed ${kind} “${a.title}”`);
+        }
+      }
+    } catch (e) {}
+  }
+  if (done.length) { rebuildAuto(phase); save(); }
+  return done;
+}
+
+// Finish a coach turn: parse + apply any actions, then show the cleaned answer.
+function finishCoach(phase, rawText) {
+  const { actions, clean } = parseActions(rawText);
+  const applied = actions.length ? applyCoachActions(phase, actions) : [];
+  let finalText = clean;
+  if (applied.length) finalText += (finalText ? '\n\n' : '') + '**Updated your plan:**\n' + applied.map(s => '- ' + s).join('\n');
+  if (!finalText) finalText = rawText;
+  coachState.answer = finalText; coachState.streaming = false; coachState.loading = false;
+  if (applied.length) { toast('Plan updated'); renderPhase(); }   // refresh calendar + coach panel
+  else renderCoachBody(phase);
+}
+
+function askCoach(phase, q) {
+  q = (q || '').trim() || 'Plan my week and tell me if anything looks too full.';
+  return askLocal(phase, q);
+}
+
+async function askLocal(phase, q) {
+  coachState = { question: q, answer: '', error: '', loading: true, streaming: false };
+  renderCoachBody(phase);
+  try {
+    const engine = await ensureLocalEngine(phase);
+    coachState.loading = false; coachState.streaming = true; coachState.answer = '';
+    localStatus.state = 'ready';
+    renderCoachBody(phase);
+    const out = document.getElementById('coach-out');
+    const stream = await engine.chat.completions.create({
+      stream: true, temperature: 0.6, max_tokens: 1200,
+      messages: [
+        { role: 'system', content: COACH_SYSTEM },
+        { role: 'user', content: `My current planner data (JSON):\n\n${JSON.stringify(buildCoachContext(phase))}\n\n${q}` },
+      ],
+    });
+    let acc = '';
+    for await (const chunk of stream) {
+      const d = chunk.choices && chunk.choices[0] && chunk.choices[0].delta ? (chunk.choices[0].delta.content || '') : '';
+      if (d) { acc += d; if (out) out.innerHTML = mdToHtml(acc); }
+    }
+    finishCoach(phase, acc.trim() || 'No response generated — try rephrasing.');
+  } catch (err) {
+    coachState.loading = false; coachState.streaming = false;
+    localStatus = { state: 'error', progress: '' };
+    coachState.error = !webgpuSupported()
+      ? 'On-device AI needs WebGPU, which this browser doesn’t support. Try the latest Chrome or Edge.'
+      : 'Could not start the on-device model (' + ((err && err.message) ? err.message : err) + '). Please try again.';
+    renderCoachBody(phase);
+  }
+}
+
+// Tiny markdown → HTML (bold, inline code, bullets, headings). Escapes first.
+function mdToHtml(src) {
+  const esc = s => s.replace(/[&<>]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[c]));
+  const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`(.+?)`/g, '<code>$1</code>');
+  let html = '', inList = false;
+  for (const raw of String(src).split('\n')) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    if (bullet) { if (!inList) { html += '<ul>'; inList = true; } html += '<li>' + inline(bullet[1]) + '</li>'; }
+    else { if (inList) { html += '</ul>'; inList = false; }
+      if (heading) html += '<h4>' + inline(heading[1]) + '</h4>';
+      else if (line !== '') html += '<p>' + inline(line) + '</p>'; }
+  }
+  if (inList) html += '</ul>';
+  return html;
+}
+
+function coachChips() {
+  return ['Plan my week', "Am I on track for my goals?", 'Is any day too full?']
+    .map(q => `<button class="coach-chip" data-coach-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`).join('');
+}
+
+function coachOutHtml() {
+  if (localStatus.state === 'loading') return `<div class="coach-out loading" id="coach-out">Setting up your on-device coach… <span id="coach-prog">${escapeHtml(localStatus.progress || '')}</span><br><span class="hint">First time only — downloading the model.</span></div>`;
+  if (coachState.loading)  return `<div class="coach-out loading" id="coach-out">Thinking…</div>`;
+  if (coachState.error)    return `<div class="coach-out error" id="coach-out">${escapeHtml(coachState.error)}</div>`;
+  if (coachState.streaming || coachState.answer) return `<div class="coach-out" id="coach-out">${mdToHtml(coachState.answer || '')}</div>`;
+  return '';
+}
+
+function buildCoachBody() {
+  if (!webgpuSupported()) {
+    return `<p class="coach-intro">This free coach runs right on your device — but it needs <strong>WebGPU</strong>, which this browser doesn’t support. Try the latest Chrome or Edge.</p>`;
+  }
+  const busy = coachState.loading || localStatus.state === 'loading';
+  const tier = getCoachTier();
+  const tierOpt = (v, label) => `<option value="${v}"${tier === v ? ' selected' : ''}>${label}</option>`;
+  return `
+    <p class="coach-intro">Runs entirely on your device — no key, no cost, private. The first question downloads the model once (then it works offline). A stronger model follows your "make this change" requests more reliably, but is a bigger download and slower.</p>
+    <div class="coach-chips">${coachChips()}</div>
+    <textarea id="coach-input" class="coach-input" rows="2" placeholder="Ask your coach anything about your plan…  (Ctrl/⌘+Enter to send)">${escapeHtml(coachState.question || '')}</textarea>
+    <div class="coach-actions">
+      <button class="btn sm" id="coach-ask"${busy ? ' disabled' : ''}>${localStatus.state === 'loading' ? 'Loading…' : (coachState.loading ? 'Thinking…' : 'Ask coach')}</button>
+      <span class="coach-tier-wrap"><select id="coach-tier" class="coach-tier" title="Bigger = smarter but heavier">
+        ${tierOpt('light', 'Light · ~1 GB')}${tierOpt('balanced', 'Balanced · ~2 GB')}${tierOpt('strong', 'Strong · ~4–5 GB')}
+      </select></span>
+    </div>
+    ${coachOutHtml()}`;
+}
+
+function renderCoachBody(phase) {
+  const el = document.getElementById('coach-body');
+  if (!el) return;
+  el.innerHTML = buildCoachBody();
+  wireCoach(phase);
+}
+
+function wireCoach(phase) {
+  const ask = document.getElementById('coach-ask');
+  if (ask) ask.onclick = () => askCoach(phase, (document.getElementById('coach-input') || {}).value || '');
+  const input = document.getElementById('coach-input');
+  if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); askCoach(phase, input.value); } });
+  document.querySelectorAll('[data-coach-q]').forEach(b => { b.onclick = () => askCoach(phase, b.dataset.coachQ); });
+  const tier = document.getElementById('coach-tier');
+  if (tier) tier.onchange = () => { setCoachTier(tier.value); if (localStatus.state !== 'loading') toast('Loads on your next question'); };
+}
+
 // ── PHASE VIEW ─────────────────────────────────────────────────────────────
 
 function renderPhase() {
@@ -1366,6 +1683,10 @@ function renderPhase() {
         </div>
       </div>
       <div>
+        <div class="panel coach">
+          <div class="panel-title">Coach <span class="hint ml">your AI planning partner</span></div>
+          <div id="coach-body">${buildCoachBody()}</div>
+        </div>
         <div class="panel">
           <div class="panel-title">Main goals <span class="hint ml">tap to edit</span></div>
           ${buildGoalBlocks(phase, dayPlan, colorMap)}
@@ -1426,6 +1747,8 @@ function renderPhase() {
   document.getElementById('phase-content').querySelectorAll('[data-edit-appt]').forEach(el => {
     el.onclick = () => { const a = phase.appointments.find(x => x.id === el.dataset.editAppt); if (a) openEditor('appointment', a); };
   });
+
+  wireCoach(phase);
 }
 
 // ── DAY VIEW ───────────────────────────────────────────────────────────────

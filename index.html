@@ -334,6 +334,8 @@
   .tl-block { position: absolute; border-radius: 7px; padding: 3px 24px 3px 8px; overflow: hidden; cursor: pointer; background: var(--bg); border-left: 3px solid var(--bc); box-shadow: var(--shadow); transition: filter .12s, transform .08s; }
   .tl-block:hover { filter: brightness(.97); transform: translateY(-1px); }
   .tl-block.is-done, .tl-block.is-skip { opacity: .5; }
+  .tl-block.type-study { cursor: default; border-left-style: dashed; }
+  .tl-block.type-study .tl-b-title { font-weight: 500; }
   .tl-block.is-done .tl-b-title { text-decoration: line-through; }
   .tl-b-time { font-size: 10px; color: var(--muted); line-height: 1.1; }
   .tl-b-title { font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -467,7 +469,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.23';
+const APP_VERSION = '0.24';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -1821,8 +1823,8 @@ function minToHM(m) { const h = Math.floor(m / 60), mm = m % 60; return `${h}:${
 
 // Build a concrete by-the-hour plan: appointments sit at their clock time; tasks and
 // routine sessions (which have a duration but no set time) are poured into the open slots.
-function buildDayTimeline(phase, iso, routinePlan, colorMap) {
-  const ROW = 56, MIN_BLOCK = 24, DAY_START = 8 * 60, DAY_END = 23 * 60, GUTTER = 52;
+function buildDayTimeline(phase, iso, routinePlan, colorMap, dayPlan) {
+  const ROW = 56, MIN_BLOCK = 24, DAY_START = 8 * 60, DAY_END = 23 * 60;
   const rLog = phase.routineLog || {};
   const items = [];
   (phase.appointments || []).filter(a => a.date === iso).forEach(a => {
@@ -1838,26 +1840,44 @@ function buildDayTimeline(phase, iso, routinePlan, colorMap) {
     items.push({ type: 'routine', id: rid, title: r.title, cat: r.cat || 'sport', done: st === 'done', skip: st === 'skip', fixed: false, start: null, dur: Math.max(10, effortMinutes(r.effort)) });
   });
 
-  // Free gaps left by the fixed (timed) items, then pour the untimed ones in.
-  const fixed = items.filter(i => i.fixed).sort((a, b) => a.start - b.start);
-  const merged = [];
-  fixed.forEach(f => { const e = f.start + f.dur; if (merged.length && f.start <= merged[merged.length - 1].e) merged[merged.length - 1].e = Math.max(merged[merged.length - 1].e, e); else merged.push({ s: f.start, e }); });
-  const gaps = []; let cur = DAY_START;
-  merged.forEach(m => { if (m.s > cur) gaps.push({ s: cur, e: Math.min(m.s, DAY_END) }); cur = Math.max(cur, m.e); });
-  if (cur < DAY_END) gaps.push({ s: cur, e: DAY_END });
-  const overflow = [];
-  let gi = 0, cursor = gaps.length ? gaps[0].s : DAY_START;
-  items.filter(i => !i.fixed).forEach(it => {
-    let placed = false;
-    while (gi < gaps.length) {
-      if (cursor < gaps[gi].s) cursor = gaps[gi].s;
-      if (cursor + it.dur <= gaps[gi].e) { it.start = cursor; cursor += it.dur; placed = true; break; }
-      gi++; if (gi < gaps.length) cursor = gaps[gi].s;
+  // Free time left by the fixed (timed) appointments, then pour untimed items in.
+  const fixed = items.filter(i => i.fixed);
+  const freeAround = (s0, e0, blocks) => {
+    const bs = blocks.slice().sort((a, b) => a.s - b.s); const free = []; let c = s0;
+    bs.forEach(b => { const a = Math.max(s0, b.s), z = Math.min(e0, b.e); if (a > c) free.push({ s: c, e: a }); c = Math.max(c, z); });
+    if (c < e0) free.push({ s: c, e: e0 }); return free;
+  };
+  const freeIv = freeAround(DAY_START, DAY_END, fixed.map(f => ({ s: f.start, e: f.start + f.dur })));
+  let fi = 0, cursor = freeIv.length ? freeIv[0].s : DAY_START;
+  const placeDur = (dur) => {
+    while (fi < freeIv.length) {
+      if (cursor < freeIv[fi].s) cursor = freeIv[fi].s;
+      if (cursor + dur <= freeIv[fi].e) { const s = cursor; cursor += dur; return s; }
+      fi++; if (fi < freeIv.length) cursor = freeIv[fi].s;
     }
-    if (!placed) overflow.push(it);
-  });
+    return null;
+  };
+  const overflow = [];
+  items.filter(i => !i.fixed).forEach(it => { const s = placeDur(it.dur); if (s != null) it.start = s; else overflow.push(it); });
 
-  const placed = items.filter(i => i.start != null);
+  // Auto-fill the day's remaining capacity with study for its focus goal. Computed live,
+  // so adding a task/appointment shrinks the study time automatically (it reflows).
+  let committedSum = 0; items.forEach(i => committedSum += i.dur);
+  const focusId = (dayPlan && dayPlan[iso] && !String(dayPlan[iso]).startsWith('exam:') && iso >= todayISO()) ? dayPlan[iso] : null;
+  const focusGoal = focusId ? (phase.goals || []).find(g => g.id === focusId) : null;
+  let studyLeft = focusGoal ? Math.max(0, dayCapacity(phase, iso) - committedSum) : 0;
+  const studyBlocks = [];
+  while (studyLeft >= 10 && fi < freeIv.length) {
+    if (cursor < freeIv[fi].s) cursor = freeIv[fi].s;
+    const avail = freeIv[fi].e - cursor;
+    if (avail <= 0) { fi++; if (fi < freeIv.length) cursor = freeIv[fi].s; continue; }
+    const take = Math.min(avail, studyLeft);
+    studyBlocks.push({ type: 'study', goalId: focusId, title: `Study · ${focusGoal.title}`, start: cursor, dur: take });
+    cursor += take; studyLeft -= take;
+    if (cursor >= freeIv[fi].e) { fi++; if (fi < freeIv.length) cursor = freeIv[fi].s; }
+  }
+
+  const placed = items.filter(i => i.start != null).concat(studyBlocks);
   let minS = DAY_START, maxE = DAY_END;
   placed.forEach(b => { minS = Math.min(minS, b.start); maxE = Math.max(maxE, b.start + b.dur); });
   const rangeStart = Math.max(0, Math.floor(minS / 60) * 60);
@@ -1875,13 +1895,13 @@ function buildDayTimeline(phase, iso, routinePlan, colorMap) {
   clusters.forEach(c => c.blocks.forEach(b => b._cols = c.cols.length));
 
   const blockColor = (b) => {
-    if (b.type === 'task') {
-      if (b.goalId && colorMap[b.goalId] != null) { const c = GOAL_PALETTE[colorMap[b.goalId] % GOAL_PALETTE.length]; return { c: c.color, bg: c.bg }; }
-      return { c: '#5B6472', bg: '#EEF1F5' };
+    if (b.type === 'task' || b.type === 'study') {
+      if (b.goalId != null && colorMap[b.goalId] != null) { const c = GOAL_PALETTE[colorMap[b.goalId] % GOAL_PALETTE.length]; return { c: c.color, bg: c.bg }; }
+      return b.type === 'study' ? { c: 'var(--c-study)', bg: 'var(--c-study-bg)' } : { c: '#5B6472', bg: '#EEF1F5' };
     }
     const cc = CATS[b.cat]; return { c: cc ? cc.color : 'var(--muted)', bg: cc ? cc.bg : 'var(--surface-2)' };
   };
-  const editAttr = (b) => b.type === 'task' ? `data-edit-task="${b.id}"` : b.type === 'appt' ? `data-edit-appt="${b.id}"` : `data-edit-routine="${b.id}"`;
+  const editAttr = (b) => b.type === 'task' ? `data-edit-task="${b.id}"` : b.type === 'appt' ? `data-edit-appt="${b.id}"` : b.type === 'routine' ? `data-edit-routine="${b.id}"` : '';
   const checkAttr = (b) => b.type === 'task' ? `data-check-task="${b.id}"` : b.type === 'appt' ? `data-check-appt="${b.id}"` : `data-check-rt="${b.id}"`;
 
   const blocksHTML = placed.map(b => {
@@ -1892,7 +1912,7 @@ function buildDayTimeline(phase, iso, routinePlan, colorMap) {
     const tall = height >= 42;
     return `<div class="tl-block type-${b.type}${b.done ? ' is-done' : ''}${b.skip ? ' is-skip' : ''}${tall ? ' tall' : ''}"
       style="top:${top}px;height:${height}px;left:calc(${leftPct}% + 1px);width:calc(${wPct}% - 3px);--bc:${c};--bg:${bg}" ${editAttr(b)}>
-      <button class="tl-check" ${checkAttr(b)} aria-label="Mark done">${svgCheck()}</button>
+      ${b.type === 'study' ? '' : `<button class="tl-check" ${checkAttr(b)} aria-label="Mark done">${svgCheck()}</button>`}
       ${tall ? `<div class="tl-b-time">${minToHM(b.start)}–${minToHM(b.start + b.dur)}</div>` : ''}
       <div class="tl-b-title">${escapeHtml(b.title)}</div>
     </div>`;
@@ -1913,7 +1933,7 @@ function buildDayTimeline(phase, iso, routinePlan, colorMap) {
 
   const scrollTop = Math.max(0, (minS - rangeStart) / 60 * ROW - 6);
   const H = (rangeEnd - rangeStart) / 60 * ROW + 8;
-  return `${anytime}<div class="timeline" data-scroll="${Math.round(scrollTop)}"><div class="tl-inner" style="height:${H}px;--gutter:${GUTTER}px">${lines}<div class="tl-blocks">${blocksHTML}</div></div></div>`;
+  return `${anytime}<div class="timeline" data-scroll="${Math.round(scrollTop)}"><div class="tl-inner" style="height:${H}px">${lines}<div class="tl-blocks">${blocksHTML}</div></div></div>`;
 }
 
 // ── DAY VIEW ───────────────────────────────────────────────────────────────
@@ -1972,7 +1992,7 @@ function renderDay() {
       }).join('')}
     </div>`;
 
-  const timelineHTML = buildDayTimeline(phase, iso, routinePlan, colorMap);
+  const timelineHTML = buildDayTimeline(phase, iso, routinePlan, colorMap, dayPlan);
 
   // Load meter — how full this day is vs. its capacity (skip for days already gone).
   const capN  = dayCapacity(phase, iso);

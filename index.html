@@ -500,7 +500,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.32';
+const APP_VERSION = '0.33';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -869,14 +869,19 @@ function computeDayPlan(phase) {
   });
 
   // Smooth weighted round-robin over the open days: higher `weight` ⇒ more study days.
-  // A goal drops out once its deadline passes. Credits keep the spread evenly interleaved.
-  const weightOf = g => { const w = +g.weight; return (isFinite(w) && w > 0) ? w : 1; };
+  // weight: undefined ⇒ 1 (normal); 0 (or negative) ⇒ PAUSED — no study days while any
+  // higher-priority goal is still active, then it resumes automatically once those exams pass.
+  // So "focus only on my nearest exam" = set the later goal's weight to 0.
+  const weightOf = g => { const w = +g.weight; return (g.weight == null || !isFinite(w)) ? 1 : Math.max(0, w); };
   const credit = {}; goals.forEach(g => credit[g.id] = 0);
   open.forEach(day => {
-    const active = goals.filter(g => day <= g.date);
-    if (!active.length) return;
-    const total = active.reduce((s,g) => s + weightOf(g), 0);
-    active.forEach(g => { credit[g.id] += weightOf(g); });
+    const live = goals.filter(g => day <= g.date);        // goals whose exam hasn't passed yet
+    let active = live.filter(g => weightOf(g) > 0);        // the prioritized (non-paused) ones
+    const wt = active.length ? weightOf : () => 1;         // none prioritized ⇒ fall back to the rest, evenly
+    if (!active.length) active = live;
+    if (!active.length) return;                            // nothing left to study at all
+    const total = active.reduce((s,g) => s + wt(g), 0);
+    active.forEach(g => { credit[g.id] += wt(g); });
     let pick = active[0];
     for (const g of active) { if (credit[g.id] > credit[pick.id] + 1e-9) pick = g; }
     plan[day] = pick.id;
@@ -1478,6 +1483,7 @@ const COACH_SYSTEM = `You are the coach inside "Lock In Planner," a personal pla
 You receive the user's current planner as JSON: a phase (planning period with start/end), main goals with deadlines (often exams), weekly routines (times per week + effort in minutes), appointments, one-off tasks, the default study hours ("studyHoursDefault"), and a 7-day forecast (each day lists its "studyHours" window plus its "studyFocus" — the goal it studies, "EXAM DAY", or null — and "focusPinned").
 
 Each non-exam day is automatically assigned ONE focus goal and filled with study for it across the study window. The auto-assignment uses each goal's "studyWeight" (higher = more study days; default 1) and "order" (lower number = studied earlier in the rotation; null = ordered by nearest deadline). Goals also report "upcomingStudyDays" (how many study days they currently get). So: a higher window = a longer day; a higher studyWeight = more days; "order" reshuffles which goal leads.
+A "studyWeight" of 0 PAUSES a goal: it gets NO study days while any earlier-priority exam is still ahead, then resumes automatically once those exams pass. This is how you "focus only on the nearest exam": set the later exam's weight to 0. After you change anything, check the updated "upcomingStudyDays" to confirm it did what the user asked.
 
 Advising:
 - Be concise and practical — a few short paragraphs or bullets, not an essay.
@@ -1498,13 +1504,14 @@ Action schema (ISO dates YYYY-MM-DD, within the phase start..end; prefer lighter
   {"op":"reschedule_task","title":"Run","day":"2026-06-13"},
   {"op":"set_study_hours","day":"2026-06-12","start":"09:00","end":"21:00"},
   {"op":"set_study_focus","goal":"Maths exam","weight":2,"order":1},
+  {"op":"set_study_focus","goal":"Physics exam","weight":0},
   {"op":"set_day_focus","day":"2026-06-12","goal":"History exam"},
   {"op":"delete","kind":"task","title":"Run"}
 ]}
 \`\`\`
 Rules: "day" may be null to let the app auto-schedule a task. For exercise like a run, use add_task (or add_routine if it recurs weekly). Match existing items by their exact title for reschedule/delete. "goal" (optional) is a main-goal title to link a task to.
 Use set_study_hours to make a study day longer or shorter ("study later Friday", "two extra hours Thursday", "shorter day Monday"). Compute new clock times from the day's current "studyHours" (two hours past an 8:00-18:00 day = end "20:00"). Give "start" and/or "end" as "HH:MM" (24h). Include "day" for just that day; omit "day" for the default.
-Use set_study_focus to change HOW MANY study days a goal gets ("weight", relative — give a goal a bigger weight for more days) and/or its rotation "order" (lower = comes first; use it to reorder which goal you study first). Provide "goal" plus "weight" and/or "order".
+Use set_study_focus to change HOW MANY study days a goal gets ("weight", relative — bigger = more days; default 1) and/or its rotation "order" (lower = comes first). **Set weight to 0 to PAUSE a goal** — no study days until earlier exams pass, then it auto-resumes; this is the right action when the user wants to focus only on the nearest exam(s) and not study a later one yet. Set weight back to 1+ to un-pause. Provide "goal" plus "weight" and/or "order". Examples: "focus on my Maths exam, it's first, don't study Physics yet" ⇒ set Physics weight 0; "study History twice as much" ⇒ set History weight 2.
 Use set_day_focus to pin ONE day to a specific goal ("study History this Saturday"): "day" + "goal". Set "goal" to null to clear a pin (back to auto). For broad reshuffles prefer set_study_focus; use set_day_focus for individual days.
 Keep the JSON minimal and valid. Don't mention the JSON block in your prose — just confirm naturally (e.g. "Done — I've doubled the study days for your Maths exam and put it first in the rotation, since it's your nearest deadline.").`;
 
@@ -1673,7 +1680,7 @@ function applyCoachActions(phase, actions) {
         const g = byTitle(phase.goals, a.goal);
         if (!g) continue;
         const parts = [];
-        if (a.weight != null && isFinite(+a.weight) && +a.weight > 0) { g.weight = +a.weight; parts.push(`${g.weight}× study days`); }
+        if (a.weight != null && isFinite(+a.weight) && +a.weight >= 0) { g.weight = Math.max(0, +a.weight); parts.push(g.weight === 0 ? 'paused (no study days for now)' : `${g.weight}× study days`); }
         if (a.order != null && isFinite(+a.order)) { g.order = +a.order; parts.push(`priority ${g.order}`); }
         if (parts.length) done.push(`Set “${g.title}” to ${parts.join(', ')}`);
       } else if (a.op === 'set_day_focus') {

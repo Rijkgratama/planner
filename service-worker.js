@@ -1,5 +1,5 @@
 // Bump VERSION on each deploy to retire old caches.
-const VERSION = 'v0.32';
+const VERSION = 'v0.33';
 const CACHE = `lock-in-planner-${VERSION}`;
 const ASSETS = [
   './',

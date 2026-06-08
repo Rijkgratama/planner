@@ -500,7 +500,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.30';
+const APP_VERSION = '0.31';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -1460,7 +1460,7 @@ function deleteItem(type, item) {
 
 const COACH_SYSTEM = `You are the coach inside "Lock In Planner," a personal planning app. Act like a calm, supportive coach in the user's corner — warm, encouraging, never naggy. North star: help them have *doable* days while making sure their main goals still get done, and keep the other things that matter (exercise, chores, the dog) from being crowded out.
 
-You receive the user's current planner as JSON: a phase (planning period with start/end), main goals with deadlines (often exams), weekly routines (times per week + effort in minutes), appointments, one-off tasks, and a 7-day forecast of planned minutes per day.
+You receive the user's current planner as JSON: a phase (planning period with start/end), main goals with deadlines (often exams), weekly routines (times per week + effort in minutes), appointments, one-off tasks, the default study hours ("studyHoursDefault"), and a 7-day forecast of planned minutes per day (each day also lists its own "studyHours" window). Each study day is automatically filled with study for its focus goal across that window, so a longer window = a longer study day.
 
 Advising:
 - Be concise and practical — a few short paragraphs or bullets, not an essay.
@@ -1479,10 +1479,13 @@ Action schema (ISO dates YYYY-MM-DD, within the phase start..end; prefer lighter
   {"op":"add_appointment","title":"Dentist","date":"2026-06-12","time":"14:00"},
   {"op":"add_routine","title":"Stretch","timesPerWeek":3,"effortMinutes":15},
   {"op":"reschedule_task","title":"Run","day":"2026-06-13"},
+  {"op":"set_study_hours","day":"2026-06-12","start":"09:00","end":"21:00"},
   {"op":"delete","kind":"task","title":"Run"}
 ]}
 \`\`\`
-Rules: "day" may be null to let the app auto-schedule a task. For exercise like a run, use add_task (or add_routine if it recurs weekly). Match existing items by their exact title for reschedule/delete. "goal" (optional) is a main-goal title to link a task to. Keep the JSON minimal and valid. Don't mention the JSON block in your prose — just confirm naturally (e.g. "Done — I've put an hour for a run on Thursday, your lightest day next week.").`;
+Rules: "day" may be null to let the app auto-schedule a task. For exercise like a run, use add_task (or add_routine if it recurs weekly). Match existing items by their exact title for reschedule/delete. "goal" (optional) is a main-goal title to link a task to.
+Use set_study_hours to make a study day longer or shorter (the user might say "study later on Friday", "give me an extra two hours Thursday", "shorter study day Monday"). Compute the new clock times from the day's current "studyHours" — e.g. two hours longer than an 8:00-18:00 day means end "20:00". Provide "start" and/or "end" as "HH:MM" (24h). Include "day" (ISO) to change just that day; omit "day" to change every day's default.
+Keep the JSON minimal and valid. Don't mention the JSON block in your prose — just confirm naturally (e.g. "Done — I've stretched Thursday's study to 8:00-20:00 so you get the extra two hours.").`;
 
 let coachState = { answer: '', error: '', loading: false, question: '' };
 
@@ -1569,16 +1572,20 @@ function buildCoachContext(phase) {
   for (let i = 0; i < 7; i++) {
     const iso = isoFromDate(d); d.setDate(d.getDate() + 1);
     if (iso < phase.start || iso > phase.end) continue;
+    const sw = studyWindow(phase, iso);
     next7.push({
       date: iso,
       weekday: fmtWeekday(iso),
       plannedMinutes: Math.round(dayLoad(phase, iso, routinePlan)),
+      studyHours: `${minToHM(sw.start)}-${minToHM(sw.end)}`,
     });
   }
+  const defS = hmToMin(phase.studyStart), defE = hmToMin(phase.studyEnd);
   const goalTitle = id => { const g = (phase.goals || []).find(x => x.id === id); return g ? g.title : null; };
   return {
     today,
     phase: { title: phase.title, start: phase.start, end: phase.end },
+    studyHoursDefault: `${minToHM(defS != null ? defS : STUDY_DEF_START)}-${minToHM(defE != null ? defE : STUDY_DEF_END)}`,
     goals: (phase.goals || []).map(g => ({ title: g.title, deadline: g.date, daysLeft: daysUntil(g.date) })),
     routines: (phase.routines || []).map(r => ({
       title: r.title,
@@ -1632,6 +1639,24 @@ function applyCoachActions(phase, actions) {
       } else if (a.op === 'reschedule_task') {
         const t = byTitle(phase.tasks, a.title);
         if (t && isValidDate(a.day)) { t.date = a.day; t.userPlaced = true; done.push(`Moved “${t.title}” to ${fmtMed(a.day)}`); }
+      } else if (a.op === 'set_study_hours') {
+        const norm = v => { const m = hmToMin(v); return m == null ? null : minToHM(m); };
+        const start = norm(a.start), end = norm(a.end);
+        if (start == null && end == null) continue;
+        if (isValidDate(a.day)) {
+          phase.dayStudy = phase.dayStudy || {};
+          const cur = Object.assign({}, phase.dayStudy[a.day]);
+          if (start != null) cur.start = start;
+          if (end != null) cur.end = end;
+          phase.dayStudy[a.day] = cur;
+          const w = studyWindow(phase, a.day);
+          done.push(`Set study hours on ${fmtMed(a.day)} to ${minToHM(w.start)}–${minToHM(w.end)}`);
+        } else {
+          if (start != null) phase.studyStart = start;
+          if (end != null) phase.studyEnd = end;
+          const ws = hmToMin(phase.studyStart), we = hmToMin(phase.studyEnd);
+          done.push(`Set default study hours to ${minToHM(ws != null ? ws : STUDY_DEF_START)}–${minToHM(we != null ? we : STUDY_DEF_END)}`);
+        }
       } else if (a.op === 'delete') {
         const kind = a.kind || 'task';
         const arr = kind === 'appointment' ? phase.appointments : kind === 'routine' ? phase.routines : phase.tasks;
@@ -1716,7 +1741,7 @@ function buildCoachBody() {
     ? `<span class="coach-model-wrap"><select id="coach-model" class="coach-model" title="Free model — switch if one is rate-limited">${orFreeModels.map(m => `<option value="${escapeHtml(m.id)}"${m.id === sel ? ' selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}</select></span>`
     : '';
   return `
-    <textarea id="coach-input" class="coach-input" rows="2" placeholder="Ask your coach…  (Ctrl/⌘+Enter to send)">${escapeHtml(coachState.question || '')}</textarea>
+    <textarea id="coach-input" class="coach-input" rows="2" placeholder="Ask your coach…  (Enter to send · Shift+Enter for a new line)">${escapeHtml(coachState.question || '')}</textarea>
     <div class="coach-actions">
       <button class="btn sm" id="coach-ask"${coachState.loading ? ' disabled' : ''}>${coachState.loading ? 'Thinking…' : 'Ask'}</button>
       <button class="btn xs ghost" id="coach-more" title="Options" aria-label="Options" style="margin-left:auto">⋯</button>
@@ -1746,7 +1771,7 @@ function wireCoach(phase) {
   const ask = document.getElementById('coach-ask');
   if (ask) ask.onclick = () => askCoach(phase, (document.getElementById('coach-input') || {}).value || '');
   const input = document.getElementById('coach-input');
-  if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); askCoach(phase, input.value); } });
+  if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); askCoach(phase, input.value); } });
   const more = document.getElementById('coach-more');
   if (more) more.onclick = () => { const s = document.getElementById('coach-settings'); if (s) s.classList.toggle('open'); };
   const ms = document.getElementById('coach-model');
@@ -1846,6 +1871,19 @@ function renderPhase() {
 function hmToMin(t) { const m = /^(\d{1,2}):(\d{2})$/.exec(t || ''); return m ? (+m[1]) * 60 + (+m[2]) : null; }
 function minToHM(m) { const h = Math.floor(m / 60), mm = m % 60; return `${h}:${String(mm).padStart(2, '0')}`; }
 
+// How long each study day runs. Default 8:00–18:00; the coach (or future UI) can stretch it
+// per day via phase.dayStudy[iso] = {start,end} or shift the default via phase.studyStart/End.
+const STUDY_DEF_START = 8 * 60, STUDY_DEF_END = 18 * 60;
+function studyWindow(phase, iso) {
+  const ds = (phase && phase.dayStudy && phase.dayStudy[iso]) || {};
+  const dStart = hmToMin(phase && phase.studyStart), dEnd = hmToMin(phase && phase.studyEnd);
+  let start = hmToMin(ds.start); if (start == null) start = (dStart != null ? dStart : STUDY_DEF_START);
+  let end   = hmToMin(ds.end);   if (end   == null) end   = (dEnd   != null ? dEnd   : STUDY_DEF_END);
+  start = Math.max(0, Math.min(start, 23 * 60));
+  end = Math.max(start + 30, Math.min(end, 24 * 60));
+  return { start, end };
+}
+
 // Build a concrete by-the-hour plan: appointments sit at their clock time; tasks and
 // routine sessions (which have a duration but no set time) are poured into the open slots.
 function buildDayTimeline(phase, iso, routinePlan, colorMap, dayPlan) {
@@ -1887,12 +1925,17 @@ function buildDayTimeline(phase, iso, routinePlan, colorMap, dayPlan) {
   items.filter(i => !i.fixed).forEach(it => { const s = placeDur(it.dur); if (s != null) it.start = s; else overflow.push(it); });
 
   // Fully plan each study day: fill the day (around commitments) with study for its focus
-  // goal, in ~2h chunks up to STUDY_END. Computed live, so commitments push study aside.
-  const STUDY_END = 18 * 60, STUDY_CHUNK = 120;
+  // goal, in ~2h chunks across the study window. Computed live, so commitments push study
+  // aside; the window (and so a longer/shorter study day) comes from studyWindow().
+  const sw = studyWindow(phase, iso);
+  const STUDY_START = sw.start, STUDY_END = sw.end, STUDY_CHUNK = 120;
   const focusId = (dayPlan && dayPlan[iso] && !String(dayPlan[iso]).startsWith('exam:') && iso >= todayISO()) ? dayPlan[iso] : null;
   const focusGoal = focusId ? (phase.goals || []).find(g => g.id === focusId) : null;
   const studyBlocks = [];
   if (focusGoal) {
+    // Don't start study before the window opens (skip earlier free gaps).
+    while (fi < freeIv.length && Math.max(cursor, freeIv[fi].s) < STUDY_START && freeIv[fi].e <= STUDY_START) { fi++; if (fi < freeIv.length) cursor = freeIv[fi].s; }
+    if (cursor < STUDY_START) cursor = STUDY_START;
     while (fi < freeIv.length) {
       if (cursor < freeIv[fi].s) cursor = freeIv[fi].s;
       if (cursor >= STUDY_END) break;

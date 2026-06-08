@@ -332,6 +332,17 @@
   .coach-out h4 { font-size: 14px; font-weight: 600; margin: 10px 0 4px; }
   .coach-out code { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
 
+  /* ── Gentle nudges ── */
+  .nudges { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .nudge { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--accent-soft); border-radius: var(--radius); cursor: pointer; transition: filter .15s, transform .1s; }
+  .nudge:hover { filter: brightness(.98); transform: translateY(-1px); }
+  .nudge-icon { font-size: 17px; line-height: 1; }
+  .nudge-text { flex: 1; font-size: 14px; color: var(--ink); }
+  .nudge-text strong { font-weight: 600; }
+  .nudge-x { background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; border-radius: 6px; line-height: 0; transition: background .15s, color .15s; }
+  .nudge-x:hover { background: rgba(16,24,40,.06); color: var(--ink); }
+  .nudge-x svg { width: 14px; height: 14px; }
+
   /* ── Day timeline (hour-by-hour) ── */
   .timeline { position: relative; max-height: 62vh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
   .tl-inner { position: relative; }
@@ -344,6 +355,7 @@
   .tl-block.is-done, .tl-block.is-skip { opacity: .5; }
   .tl-block.type-study { cursor: default; border-left-style: dashed; }
   .tl-block.type-study .tl-b-title { font-weight: 500; }
+  .tl-block.dragging { cursor: grabbing; box-shadow: var(--shadow-md); z-index: 5; opacity: .95; user-select: none; }
   .tl-block.is-done .tl-b-title { text-decoration: line-through; }
   .tl-b-time { font-size: 10px; color: var(--muted); line-height: 1.1; }
   .tl-b-title { font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -477,7 +489,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.27';
+const APP_VERSION = '0.29';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -655,6 +667,60 @@ function showView(name) {
 
 // ── HOME ───────────────────────────────────────────────────────────────────
 
+// ── GENTLE NUDGES (calm, dismissable check-ins on the home screen) ──────────
+const NUDGE_LS = 'lockin:dismissed-nudges';
+function getDismissed() { try { return JSON.parse(localStorage.getItem(NUDGE_LS) || '[]'); } catch (e) { return []; } }
+function dismissNudge(id) { try { const a = getDismissed(); if (!a.includes(id)) { a.push(id); localStorage.setItem(NUDGE_LS, JSON.stringify(a.slice(-60))); } } catch (e) {} }
+function activePhase() { const t = todayISO(); return phases.find(p => t >= p.start && t <= p.end) || null; }
+
+function computeNudges(phase) {
+  const today = todayISO();
+  const out = [];
+  const routinePlan = computeRoutinePlan(phase);
+  const wkIdx = (new Date(today + 'T00:00:00').getDay() + 6) % 7;   // 0 = Monday
+
+  // Routines behind their weekly target — only from mid-week, and gently.
+  (phase.routines || []).forEach(r => {
+    const target = Math.max(1, r.perWeekMin || 1);
+    const done = routineWeekProgress(phase, r, today);
+    const needed = target - done;
+    if (needed > 0 && wkIdx >= 2) {
+      out.push({
+        id: `routine-${r.id}-${mondayOf(today)}`,
+        icon: r.cat === 'sport' ? '💪' : r.cat === 'house' ? '🧺' : '🔁',
+        text: `You've done <strong>${escapeHtml(r.title)}</strong> ${done}/${target} this week — ${needed === 1 ? 'one more to go' : needed + ' more to go'}.`,
+      });
+    }
+  });
+
+  // First upcoming day that's over capacity (next ~6 days).
+  const d = new Date(today + 'T00:00:00');
+  for (let i = 0; i < 6; i++) {
+    const iso = isoFromDate(d); d.setDate(d.getDate() + 1);
+    if (iso < phase.start || iso > phase.end) continue;
+    const load = dayLoad(phase, iso, routinePlan), cap = dayCapacity(phase, iso);
+    if (load > cap) {
+      out.push({ id: `full-${iso}`, icon: '📅', text: `<strong>${i === 0 ? 'Today' : fmtWeekday(iso)}</strong> looks a bit full — ${fmtDur(load)} of ${fmtDur(cap)}. Want to move something?` });
+      break;
+    }
+  }
+  return out;
+}
+
+function buildNudges() {
+  const phase = activePhase();
+  if (!phase) return '';
+  const dismissed = getDismissed();
+  const nudges = computeNudges(phase).filter(n => !dismissed.includes(n.id));
+  if (!nudges.length) return '';
+  return `<div class="nudges">${nudges.map(n => `
+    <div class="nudge" data-phase="${phase.id}">
+      <span class="nudge-icon">${n.icon}</span>
+      <span class="nudge-text">${n.text}</span>
+      <button class="nudge-x" data-dismiss="${escapeHtml(n.id)}" aria-label="Dismiss">${svgClose()}</button>
+    </div>`).join('')}</div>`;
+}
+
 function renderHome() {
   const el = document.getElementById('phase-list');
   if (phases.length === 0) {
@@ -664,7 +730,7 @@ function renderHome() {
     </div>`;
     return;
   }
-  el.innerHTML = phases.map(p => {
+  el.innerHTML = buildNudges() + phases.map(p => {
     const daysLeft = daysUntil(p.end);
     const badgeStyle =
       daysLeft < 0  ? 'background:var(--surface-2);color:var(--faint)' :
@@ -699,6 +765,12 @@ function renderHome() {
       phases = phases.filter(x => x.id !== p.id);
       save(); renderHome(); toast('Phase deleted');
     };
+  });
+  el.querySelectorAll('[data-dismiss]').forEach(b => {
+    b.onclick = e => { e.stopPropagation(); dismissNudge(b.dataset.dismiss); renderHome(); };
+  });
+  el.querySelectorAll('.nudge').forEach(n => {
+    n.onclick = () => { currentPhaseId = n.dataset.phase; showView('phase'); };
   });
 }
 
@@ -1313,7 +1385,10 @@ function renderForm(type, item, presetDate) {
     fields = `${fldTitle(item, 'Task (e.g. Buy groceries)')}
       <div class="field"><label>Linked goal (optional)</label><select id="ed-goal">${goalOpts}</select></div>
       ${fldEffort(item ? item.effort : 'normal')}
-      <div class="field"><label>Day <span style="text-transform:none;font-weight:400">— leave empty to auto-plan</span></label><input type="date" id="ed-date" value="${dval}"></div>`;
+      <div class="field-row">
+        <div class="field"><label>Day <span style="text-transform:none;font-weight:400">— empty = auto-plan</span></label><input type="date" id="ed-date" value="${dval}"></div>
+        <div class="field"><label>Time <span style="text-transform:none;font-weight:400">— optional</span></label><input type="time" id="ed-time" value="${item ? (item.time || '') : ''}"></div>
+      </div>`;
   }
 
   const isEdit = !!item;
@@ -1359,12 +1434,13 @@ function saveEditor(type, item) {
   } else if (type === 'task') {
     const goalId = document.getElementById('ed-goal').value || null;
     const date   = document.getElementById('ed-date').value || null;
+    const time   = (document.getElementById('ed-time') || {}).value || '';
     const effort = +document.getElementById('ed-effort').value || EFFORT_DEFAULT;
     if (item) {
-      item.title = title; item.goalId = goalId; item.effort = effort;
+      item.title = title; item.goalId = goalId; item.effort = effort; item.time = time;
       item.date = date; item.userPlaced = !!date;
     } else {
-      phase.tasks.push({ id: uid(), title, goalId, effort, date: date || null, done: false, userPlaced: !!date });
+      phase.tasks.push({ id: uid(), title, goalId, effort, time, date: date || null, done: false, userPlaced: !!date });
     }
     rebuildAuto(phase);
   }
@@ -1831,7 +1907,8 @@ function buildDayTimeline(phase, iso, routinePlan, colorMap, dayPlan) {
     items.push({ type: 'appt', id: a.id, title: a.title, cat: a.cat || 'appt', done: !!a.done, fixed: start != null, start, dur: Math.max(15, +a.durationMin || 60) });
   });
   (phase.tasks || []).filter(t => t.date === iso).forEach(t => {
-    items.push({ type: 'task', id: t.id, title: t.title, goalId: t.goalId, done: !!t.done, fixed: false, start: null, dur: Math.max(10, effortMinutes(t.effort)) });
+    const start = hmToMin(t.time);
+    items.push({ type: 'task', id: t.id, title: t.title, goalId: t.goalId, done: !!t.done, fixed: start != null, start, dur: Math.max(10, effortMinutes(t.effort)) });
   });
   (routinePlan[iso] || []).forEach(rid => {
     const r = (phase.routines || []).find(x => x.id === rid); if (!r) return;
@@ -1910,7 +1987,7 @@ function buildDayTimeline(phase, iso, routinePlan, colorMap, dayPlan) {
     const { c, bg } = blockColor(b);
     const tall = height >= 42;
     return `<div class="tl-block type-${b.type}${b.done ? ' is-done' : ''}${b.skip ? ' is-skip' : ''}${tall ? ' tall' : ''}"
-      style="top:${top}px;height:${height}px;left:calc(${leftPct}% + 1px);width:calc(${wPct}% - 3px);--bc:${c};--bg:${bg}" ${editAttr(b)}>
+      style="top:${top}px;height:${height}px;left:calc(${leftPct}% + 1px);width:calc(${wPct}% - 3px);--bc:${c};--bg:${bg}" data-start="${b.start}" data-dur="${b.dur}" ${editAttr(b)}>
       ${b.type === 'study' ? '' : `<button class="tl-check" ${checkAttr(b)} aria-label="Mark done">${svgCheck()}</button>`}
       ${tall ? `<div class="tl-b-time">${minToHM(b.start)}–${minToHM(b.start + b.dur)}</div>` : ''}
       <div class="tl-b-title">${escapeHtml(b.title)}</div>
@@ -1932,7 +2009,7 @@ function buildDayTimeline(phase, iso, routinePlan, colorMap, dayPlan) {
 
   const scrollTop = Math.max(0, (minS - rangeStart) / 60 * ROW - 6);
   const H = (rangeEnd - rangeStart) / 60 * ROW + 8;
-  return `${anytime}<div class="timeline" data-scroll="${Math.round(scrollTop)}"><div class="tl-inner" style="height:${H}px">${lines}<div class="tl-blocks">${blocksHTML}</div></div></div>`;
+  return `${anytime}<div class="timeline" data-scroll="${Math.round(scrollTop)}"><div class="tl-inner" data-range-start="${rangeStart}" data-range-end="${rangeEnd}" style="height:${H}px">${lines}<div class="tl-blocks">${blocksHTML}</div></div></div>`;
 }
 
 // ── DAY VIEW ───────────────────────────────────────────────────────────────
@@ -2031,10 +2108,62 @@ function renderDay() {
     };
   });
 
-  // Tap a block to edit the underlying item.
-  dc.querySelectorAll('[data-edit-task]').forEach(el => { el.onclick = () => { const t = phase.tasks.find(x => x.id === el.dataset.editTask); if (t) openEditor('task', t); }; });
-  dc.querySelectorAll('[data-edit-appt]').forEach(el => { el.onclick = () => { const a = phase.appointments.find(x => x.id === el.dataset.editAppt); if (a) openEditor('appointment', a); }; });
-  dc.querySelectorAll('[data-edit-routine]').forEach(el => { el.onclick = () => { const r = phase.routines.find(x => x.id === el.dataset.editRoutine); if (r) openEditor('routine', r); }; });
+  // Tasks & appointments: drag vertically to set a time (or click to edit).
+  dc.querySelectorAll('.tl-block.type-task, .tl-block.type-appt').forEach(el => wireBlockDrag(el, phase, iso));
+  // Routine blocks + "anytime" rows: click to edit (not draggable).
+  dc.querySelectorAll('.tl-block.type-routine, .tl-any-row').forEach(el => {
+    el.onclick = (e) => {
+      if (e.target.closest('.tl-check')) return;
+      if (el.dataset.editTask)         { const t = phase.tasks.find(x => x.id === el.dataset.editTask); if (t) openEditor('task', t); }
+      else if (el.dataset.editAppt)    { const a = phase.appointments.find(x => x.id === el.dataset.editAppt); if (a) openEditor('appointment', a); }
+      else if (el.dataset.editRoutine) { const r = phase.routines.find(x => x.id === el.dataset.editRoutine); if (r) openEditor('routine', r); }
+    };
+  });
+}
+
+// Drag a timeline block to set its clock time; a plain click (no drag) opens the editor.
+function wireBlockDrag(el, phase, iso) {
+  const isTask = !!el.dataset.editTask;
+  const id = el.dataset.editTask || el.dataset.editAppt;
+  if (!id) return;
+  el.style.cursor = 'grab';
+  el.style.touchAction = 'none';
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('.tl-check')) return;
+    const inner = el.closest('.tl-inner'); if (!inner) return;
+    const rangeStart = +inner.dataset.rangeStart, rangeEnd = +inner.dataset.rangeEnd, ROW = 56;
+    const dur = +el.dataset.dur, origTop = parseFloat(el.style.top) || 0, startY = e.clientY;
+    let moved = false, newStart = +el.dataset.start;
+    el.setPointerCapture(e.pointerId);
+    el.classList.add('dragging');
+    const onMove = (ev) => {
+      const dy = ev.clientY - startY;
+      if (Math.abs(dy) > 3) moved = true;
+      let mins = rangeStart + ((origTop + dy) / ROW) * 60;
+      mins = Math.round(mins / 15) * 15;
+      mins = Math.max(rangeStart, Math.min(mins, rangeEnd - dur));
+      newStart = mins;
+      el.style.top = ((mins - rangeStart) / 60 * ROW) + 'px';
+    };
+    const onUp = () => {
+      el.classList.remove('dragging');
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      try { el.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (!moved) {
+        if (isTask) { const t = phase.tasks.find(x => x.id === id); if (t) openEditor('task', t); }
+        else { const a = phase.appointments.find(x => x.id === id); if (a) openEditor('appointment', a); }
+        return;
+      }
+      const hm = minToHM(newStart);
+      if (isTask) { const t = phase.tasks.find(x => x.id === id); if (t) { t.time = hm; t.userPlaced = true; } }
+      else { const a = phase.appointments.find(x => x.id === id); if (a) a.time = hm; }
+      save(); renderDay(); toast('Set to ' + hm);
+    };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    e.preventDefault();
+  });
 }
 
 // ── EVENTS ─────────────────────────────────────────────────────────────────

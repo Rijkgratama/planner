@@ -47,6 +47,12 @@
   .panel-title { font-family: 'Inter', system-ui, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .panel-title .hint { font-family: 'Inter'; font-size: 12px; color: var(--faint); font-weight: 400; }
   .panel-title .ml { margin-left: auto; }
+  details.panel > summary { cursor: pointer; list-style: none; margin-bottom: 0; }
+  details.panel > summary::-webkit-details-marker { display: none; }
+  details.panel > summary::after { content: '▸'; color: var(--faint); font-size: 11px; margin-left: 8px; transition: transform .15s; }
+  details.panel:not([open]) > summary .ml { margin-left: auto; }
+  details.panel[open] > summary { margin-bottom: 14px; }
+  details.panel[open] > summary::after { transform: rotate(90deg); display: inline-block; }
 
   input[type=text], input[type=date], select {
     border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
@@ -314,8 +320,10 @@
   .coach-input { width: 100%; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); border-radius: var(--radius-sm); padding: 10px 12px; font: inherit; font-size: 14px; resize: vertical; outline: none; transition: border-color .15s, box-shadow .15s; }
   .coach-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .coach-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-  .coach-model-wrap { margin-left: auto; min-width: 0; }
-  .coach-model { width: 100%; max-width: 150px; padding: 7px 8px; font-size: 12px; }
+  .coach-settings { display: none; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .coach-settings.open { display: flex; }
+  .coach-model-wrap { flex: 1; min-width: 0; }
+  .coach-model { width: 100%; max-width: 180px; padding: 7px 8px; font-size: 12px; }
   .coach-out { margin-top: 12px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 14px; line-height: 1.55; }
   .coach-out.loading { color: var(--muted); }
   .coach-out.error { background: var(--urgent-bg); border-color: transparent; color: var(--urgent); }
@@ -469,7 +477,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_VERSION = '0.24';
+const APP_VERSION = '0.27';
 const PKEY = 'daily-planner:phases:v1';
 
 const CATS = {
@@ -1068,7 +1076,7 @@ function buildLegend(phase, colorMap) {
     const col = GOAL_PALETTE[ci % GOAL_PALETTE.length];
     return `<span class="legend-item"><span class="legend-dot" style="background:${col.color}"></span>${escapeHtml(g.title)}</span>`;
   }).join('');
-  return `<div class="goal-legend">${items}<span class="legend-hint">Filled cell = exam · Strip = study focus · ● routine/task · ▪ appointment</span></div>`;
+  return `<div class="goal-legend">${items}</div>`;
 }
 
 // ── GOAL PROGRESS BLOCKS ───────────────────────────────────────────────────
@@ -1666,12 +1674,14 @@ function buildCoachBody() {
     ? `<span class="coach-model-wrap"><select id="coach-model" class="coach-model" title="Free model — switch if one is rate-limited">${orFreeModels.map(m => `<option value="${escapeHtml(m.id)}"${m.id === sel ? ' selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}</select></span>`
     : '';
   return `
-    <div class="coach-chips">${coachChips()}</div>
-    <textarea id="coach-input" class="coach-input" rows="2" placeholder="Ask anything — e.g. plan an hour for a run next week  (Ctrl/⌘+Enter to send)">${escapeHtml(coachState.question || '')}</textarea>
+    <textarea id="coach-input" class="coach-input" rows="2" placeholder="Ask your coach…  (Ctrl/⌘+Enter to send)">${escapeHtml(coachState.question || '')}</textarea>
     <div class="coach-actions">
-      <button class="btn sm" id="coach-ask"${coachState.loading ? ' disabled' : ''}>${coachState.loading ? 'Thinking…' : 'Ask coach'}</button>
+      <button class="btn sm" id="coach-ask"${coachState.loading ? ' disabled' : ''}>${coachState.loading ? 'Thinking…' : 'Ask'}</button>
+      <button class="btn xs ghost" id="coach-more" title="Options" aria-label="Options" style="margin-left:auto">⋯</button>
+    </div>
+    <div class="coach-settings" id="coach-settings">
       ${modelSelect}
-      <button class="btn xs ghost" id="coach-forget" title="Remove saved key">key ✕</button>
+      <button class="btn xs ghost" id="coach-forget">Remove key</button>
     </div>
     ${coachOutHtml()}`;
 }
@@ -1695,7 +1705,8 @@ function wireCoach(phase) {
   if (ask) ask.onclick = () => askCoach(phase, (document.getElementById('coach-input') || {}).value || '');
   const input = document.getElementById('coach-input');
   if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); askCoach(phase, input.value); } });
-  document.querySelectorAll('[data-coach-q]').forEach(b => { b.onclick = () => askCoach(phase, b.dataset.coachQ); });
+  const more = document.getElementById('coach-more');
+  if (more) more.onclick = () => { const s = document.getElementById('coach-settings'); if (s) s.classList.toggle('open'); };
   const ms = document.getElementById('coach-model');
   if (ms) ms.onchange = () => setModel(ms.value);
   const forget = document.getElementById('coach-forget');
@@ -1721,27 +1732,15 @@ function renderPhase() {
   const dayPlan     = computeDayPlan(phase);
   const colorMap    = buildGoalColorMap(phase);
   const routinePlan = computeRoutinePlan(phase);
-  const upcoming = (phase.goals||[]).filter(g => daysUntil(g.date) >= 0).length;
-  const passed   = (phase.goals||[]).filter(g => daysUntil(g.date) <  0).length;
 
   document.getElementById('phase-content').innerHTML = `
     <div class="phase-hero">
-      <h2>${escapeHtml(phase.title)}</h2>
-      <div class="ph-dates">${fmtShort(phase.start)} → ${fmtShort(phase.end)}</div>
+      <div class="ph-dates">${fmtShort(phase.start)} → ${fmtShort(phase.end)} · ${daysLeft < 0 ? 'ended' : daysLeft === 0 ? 'last day' : daysLeft + ' days left'}</div>
       <div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:var(--accent)"></div></div>
-      <div class="progress-label">
-        <span>${pct}% through</span>
-        <span>${daysLeft < 0 ? 'Phase ended' : daysLeft === 0 ? 'Last day' : `${daysLeft} days left`}</span>
-      </div>
     </div>
 
     <div class="phase-grid">
       <div>
-        <div class="stats-row">
-          <div class="stat"><div class="num">${upcoming}</div><div class="lbl">upcoming</div></div>
-          <div class="stat"><div class="num">${passed}</div><div class="lbl">passed</div></div>
-          <div class="stat"><div class="num">${daysLeft < 0 ? '—' : daysLeft}</div><div class="lbl">days left</div></div>
-        </div>
         <div class="panel">
           <div class="panel-title">Calendar <span class="hint">— tap a day to open it</span></div>
           ${buildCalendar(phase, dayPlan, colorMap, routinePlan)}
@@ -1750,7 +1749,7 @@ function renderPhase() {
       </div>
       <div>
         <div class="panel coach">
-          <div class="panel-title">Coach <span class="hint ml">your AI planning partner</span></div>
+          <div class="panel-title">Coach</div>
           <div id="coach-body">${buildCoachBody()}</div>
         </div>
         <div class="panel">
@@ -1761,14 +1760,14 @@ function renderPhase() {
           <div class="panel-title">Weekly routines <span class="hint ml">tap to edit</span></div>
           ${buildRoutineBlocks(phase)}
         </div>
-        <div class="panel">
-          <div class="panel-title">Appointments <span class="hint ml">tap to edit</span></div>
+        <details class="panel">
+          <summary class="panel-title">Appointments <span class="hint ml">tap to edit</span></summary>
           ${buildAppointmentBlocks(phase)}
-        </div>
-        <div class="panel">
-          <div class="panel-title">Daily capacity <span class="hint ml">hours per day</span></div>
+        </details>
+        <details class="panel cap-panel">
+          <summary class="panel-title">Daily capacity <span class="hint ml">hours per day</span></summary>
           ${buildCapacityEditor(phase)}
-        </div>
+        </details>
       </div>
     </div>
   `;
@@ -1968,13 +1967,6 @@ function renderDay() {
     }
   }
 
-  const badge =
-    iso === todayISO()
-      ? `<span class="day-badge" style="background:var(--accent);color:#fff">Today</span>`
-      : daysAway > 0
-        ? `<span class="day-badge" style="background:var(--ok-bg);color:var(--ok)">${daysAway} day${daysAway>1?'s':''} from now</span>`
-        : `<span class="day-badge" style="background:var(--surface-2);color:var(--faint)">${Math.abs(daysAway)} day${Math.abs(daysAway)>1?'s':''} ago</span>`;
-
   // Deadlines on this day
   const goalsToday = (phase.goals||[]).filter(g => g.date === iso);
   const deadlineHTML = goalsToday.length === 0 ? '' : `
@@ -2011,8 +2003,7 @@ function renderDay() {
   document.getElementById('day-content').innerHTML = `
     <div class="day-hero">
       <div class="day-name">${weekday}</div>
-      <div class="day-date-full">${fmtDayFull(iso)}</div>
-      ${badge}
+      <div class="day-date-full">${fmtDayFull(iso)}${iso === todayISO() ? ' · Today' : ''}</div>
       ${studyTagHTML}
       ${capacityHTML}
     </div>
